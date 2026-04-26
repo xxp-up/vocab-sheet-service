@@ -42,19 +42,13 @@ New-Item -ItemType Directory -Path $internalRoot -Force | Out-Null
 $packageItems = @(
     "app",
     "template",
+    "pyproject.toml",
+    "setup.ps1",
     "start.ps1",
-    "start.bat",
     "clean-generated.ps1",
     "README.md",
     ".env.example"
 )
-
-if (Test-Path -LiteralPath (Join-Path $projectRoot ".python312")) {
-    $packageItems += ".python312"
-}
-else {
-    Write-Warning "Portable runtime .python312 was not found. The package will require Python 3.12 on the target machine."
-}
 
 foreach ($item in $packageItems) {
     Copy-PackageItem -RelativePath $item -DestinationRoot $shareRoot
@@ -71,3 +65,5 @@ else {
 
 Write-Host "Windows share package: $shareRoot"
 Write-Host "Windows internal package: $internalRoot"
+Write-Host "Both packages require Python 3.12 to be installed on the target machine."
+Write-Host "Run .\setup.ps1 once before .\start.ps1 -NoReload."

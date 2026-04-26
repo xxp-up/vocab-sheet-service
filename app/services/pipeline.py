@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import inspect
 import logging
 from pathlib import Path
+from typing import Awaitable, Callable
 
 from app.models.domain import PipelineResult, VocabRow
 from app.services.audio import AudioService
@@ -13,6 +15,8 @@ from app.utils.text import find_sentence_for_word, is_multiword_term, merge_word
 
 
 logger = logging.getLogger("vocab_sheet_service.pipeline")
+
+ProgressCallback = Callable[[str, int, str], Awaitable[None] | None]
 
 
 class PipelineContentError(ValueError):
@@ -54,7 +58,9 @@ class PipelineService:
         *,
         audio_path: Path | None = None,
         words_text: str | None = None,
+        progress_callback: ProgressCallback | None = None,
     ) -> PipelineResult:
+        await _emit_progress(progress_callback, "document_parsing", 25, "教材解析")
         parsed_document = await self.document_service.parse(teaching_path)
         parsed_document = await self.exercise_restore_service.restore_document(parsed_document)
         logger.info(
@@ -68,6 +74,7 @@ class PipelineService:
 
         document_words = [item.word for item in parsed_document.words]
         manual_words = parse_words_text(words_text)
+        await _emit_progress(progress_callback, "merge_candidates", 45, "音频/补词合并")
         audio_hints = merge_words(document_words, manual_words)
         audio_words = await self.audio_service.extract_words(audio_path, hints=audio_hints)
         merged_words = merge_words(document_words, manual_words, audio_words)
@@ -88,8 +95,10 @@ class PipelineService:
                 "未识别到可回填的单词。当前只会从教材中的红字、下划线、批注，或手动补充单词中取词。"
             )
 
+        await _emit_progress(progress_callback, "lexicon_enrichment", 65, "词典补全")
         meanings = await self.lexicon_service.enrich_words(merged_words, parsed_document.full_text)
 
+        await _emit_progress(progress_callback, "sentence_matching", 85, "例句定位")
         rows: list[VocabRow] = []
         skipped: dict[str, str] = {}
         for word in merged_words:
@@ -136,6 +145,16 @@ class PipelineService:
             len(rows),
             len(skipped),
         )
+        await _emit_progress(progress_callback, "workbook_writing", 95, "模板写入")
         self.workbook_service.fill_template(rows, output_path)
+        await _emit_progress(progress_callback, "download_ready", 100, "准备下载")
         logger.info("Workbook written: file=%s output=%s", teaching_path.name, output_path.name)
         return PipelineResult(output_path=str(output_path), rows_written=len(rows), skipped_words=skipped)
+
+
+async def _emit_progress(progress_callback: ProgressCallback | None, stage_code: str, progress_percent: int, stage_label: str) -> None:
+    if progress_callback is None:
+        return
+    result = progress_callback(stage_code, progress_percent, stage_label)
+    if inspect.isawaitable(result):
+        await result

@@ -87,9 +87,7 @@ def test_process_raises_when_no_candidate_words() -> None:
 def test_process_raises_when_all_words_are_skipped() -> None:
     pipeline = PipelineService(
         lexicon_service=_LexiconService(
-            meanings={
-                "apple": VocabMeaning(word="apple", ipa="/apple/", pos_abbr="n.", zh_meaning="苹果")
-            }
+            meanings={"apple": VocabMeaning(word="apple", ipa="/apple/", pos_abbr="n.", zh_meaning="苹果")}
         ),
         document_service=_DocumentService(
             DocumentParseResult(
@@ -236,3 +234,45 @@ def test_process_skips_word_when_only_option_block_contains_it() -> None:
 
     assert excinfo.value.detail["identified_words"] == ["yet"]
     assert excinfo.value.detail["skipped_words"] == {"yet": "未在教材正文中定位到例句"}
+
+
+def test_process_emits_progress_stages_in_order() -> None:
+    workbook = _CaptureWorkbookService()
+    pipeline = PipelineService(
+        lexicon_service=_LexiconService(
+            meanings={"apple": VocabMeaning(word="apple", ipa="/apple/", pos_abbr="n.", zh_meaning="苹果")}
+        ),
+        document_service=_DocumentService(
+            DocumentParseResult(
+                source_type="pdf",
+                full_text="Apple is red.",
+                words=[ExtractedWord(word="apple", source="pdf:qwen_vl", page_hint=1)],
+                sentences=[SentenceOccurrence(text="Apple is red.", order=0, page_number=1)],
+            )
+        ),
+        audio_service=_AudioService(),
+        exercise_restore_service=_ExerciseRestoreService(),
+        workbook_service=workbook,
+    )
+    stages: list[tuple[str, int, str]] = []
+
+    async def _progress(stage_code: str, percent: int, label: str) -> None:
+        stages.append((stage_code, percent, label))
+
+    result = asyncio.run(
+        pipeline.process(
+            teaching_path=Path("lesson.pdf"),
+            output_path=Path("result.xlsx"),
+            progress_callback=_progress,
+        )
+    )
+
+    assert result.rows_written == 1
+    assert stages == [
+        ("document_parsing", 25, "教材解析"),
+        ("merge_candidates", 45, "音频/补词合并"),
+        ("lexicon_enrichment", 65, "词典补全"),
+        ("sentence_matching", 85, "例句定位"),
+        ("workbook_writing", 95, "模板写入"),
+        ("download_ready", 100, "准备下载"),
+    ]

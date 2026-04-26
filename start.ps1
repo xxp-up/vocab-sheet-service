@@ -10,12 +10,14 @@ $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = (Resolve-Path -LiteralPath $projectRoot).Path
+$projectRootWithSlash = $projectRoot.TrimEnd("\") + "\"
 $runtimeRoot = Join-Path $projectRoot ".runtime"
 $logsRoot = Join-Path $runtimeRoot "logs"
 $stdoutLog = Join-Path $logsRoot "uvicorn.stdout.log"
 $stderrLog = Join-Path $logsRoot "uvicorn.stderr.log"
 $envFile = Join-Path $projectRoot ".env"
 $envExample = Join-Path $projectRoot ".env.example"
+$legacyRuntimeRoot = Join-Path $projectRoot ".python312"
 
 function Test-PythonCandidate {
     param(
@@ -29,15 +31,20 @@ function Test-PythonCandidate {
     $stderrFile = [System.IO.Path]::GetTempFileName()
 
     try {
-        Set-Content -LiteralPath $probeScript -Value "import fastapi, pydantic, uvicorn" -Encoding ASCII
-        $process = Start-Process `
-            -FilePath $FilePath `
-            -ArgumentList @($PrefixArgs + @($probeScript)) `
-            -RedirectStandardOutput $stdoutFile `
-            -RedirectStandardError $stderrFile `
-            -WindowStyle Hidden `
-            -Wait `
-            -PassThru
+        Set-Content -LiteralPath $probeScript -Value "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)" -Encoding ASCII
+        try {
+            $process = Start-Process `
+                -FilePath $FilePath `
+                -ArgumentList @($PrefixArgs + @($probeScript)) `
+                -RedirectStandardOutput $stdoutFile `
+                -RedirectStandardError $stderrFile `
+                -WindowStyle Hidden `
+                -Wait `
+                -PassThru
+        }
+        catch {
+            return $false
+        }
         return $process.ExitCode -eq 0
     }
     finally {
@@ -55,30 +62,28 @@ function Resolve-PythonCommand {
         [string]$ProjectRoot
     )
 
-    $firstExistingCandidate = $null
-
     $directCandidates = @(
         @{
             Path = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
             Label = "project virtual environment"
-            PrefixArgs = @()
-        },
-        @{
-            Path = Join-Path $ProjectRoot ".python312\python.exe"
-            Label = "portable project runtime"
             PrefixArgs = @()
         }
     )
 
     foreach ($candidate in $directCandidates) {
         if (Test-Path -LiteralPath $candidate.Path) {
+            $venvConfig = Join-Path $ProjectRoot ".venv\pyvenv.cfg"
+            if ($candidate.Label -eq "project virtual environment" -and (Test-Path -LiteralPath $venvConfig)) {
+                $venvConfigContent = Get-Content -LiteralPath $venvConfig -ErrorAction SilentlyContinue
+                if (($venvConfigContent -join "`n") -match [regex]::Escape($legacyRuntimeRoot)) {
+                    continue
+                }
+            }
+
             $resolvedCandidate = [pscustomobject]@{
                 FilePath = (Resolve-Path -LiteralPath $candidate.Path).Path
                 Label = $candidate.Label
                 PrefixArgs = $candidate.PrefixArgs
-            }
-            if ($null -eq $firstExistingCandidate) {
-                $firstExistingCandidate = $resolvedCandidate
             }
             if (Test-PythonCandidate -FilePath $resolvedCandidate.FilePath -PrefixArgs $resolvedCandidate.PrefixArgs) {
                 return $resolvedCandidate
@@ -88,14 +93,31 @@ function Resolve-PythonCommand {
 
     $pyLauncher = Get-Command py -ErrorAction SilentlyContinue
     if ($pyLauncher) {
-        foreach ($prefixArgs in @(@("-3.12"), @("-3"))) {
-            $candidate = [pscustomobject]@{
-                FilePath = $pyLauncher.Source
-                Label = "system py launcher"
-                PrefixArgs = $prefixArgs
+        foreach ($line in (& $pyLauncher.Source -0p 2>$null)) {
+            if ($line -match '^\s*-V:3\.12(?:-[0-9]+)?\s+\*?\s*(.+?)\s*$') {
+                $candidatePath = $matches[1].Trim()
+                if (-not $candidatePath.StartsWith($projectRootWithSlash, [System.StringComparison]::OrdinalIgnoreCase)) {
+                    $candidate = [pscustomobject]@{
+                        FilePath = $candidatePath
+                        Label = "installed Python 3.12"
+                        PrefixArgs = @()
+                    }
+                    if (Test-PythonCandidate -FilePath $candidate.FilePath -PrefixArgs $candidate.PrefixArgs) {
+                        return $candidate
+                    }
+                }
             }
-            if ($null -eq $firstExistingCandidate) {
-                $firstExistingCandidate = $candidate
+        }
+    }
+
+    $python = Get-Command python -ErrorAction SilentlyContinue
+    if ($python) {
+        $candidatePath = $python.Source
+        if (-not $candidatePath.StartsWith($projectRootWithSlash, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $candidate = [pscustomobject]@{
+                FilePath = $candidatePath
+                Label = "system python"
+                PrefixArgs = @()
             }
             if (Test-PythonCandidate -FilePath $candidate.FilePath -PrefixArgs $candidate.PrefixArgs) {
                 return $candidate
@@ -103,26 +125,7 @@ function Resolve-PythonCommand {
         }
     }
 
-    $python = Get-Command python -ErrorAction SilentlyContinue
-    if ($python) {
-        $candidate = [pscustomobject]@{
-            FilePath = $python.Source
-            Label = "system python"
-            PrefixArgs = @()
-        }
-        if ($null -eq $firstExistingCandidate) {
-            $firstExistingCandidate = $candidate
-        }
-        if (Test-PythonCandidate -FilePath $candidate.FilePath -PrefixArgs $candidate.PrefixArgs) {
-            return $candidate
-        }
-    }
-
-    if ($null -ne $firstExistingCandidate) {
-        return $firstExistingCandidate
-    }
-
-    throw "Python interpreter not found. Expected .venv, .python312, or a system Python 3.12 installation."
+    throw "Python 3.12 interpreter not found. Run .\setup.ps1 or install Python 3.12 on this machine first."
 }
 
 function Test-StartPreflight {
@@ -180,6 +183,9 @@ from app.main import app  # noqa: F401
 
     if ($process.ExitCode -ne 0) {
         Write-Host "Startup preflight failed." -ForegroundColor Red
+        if (($output -join "`n") -match "ModuleNotFoundError" -or ($stderrOutput -join "`n") -match "ModuleNotFoundError") {
+            Write-Host "Project dependencies are missing in the selected Python 3.12 environment. Run .\setup.ps1 first." -ForegroundColor Yellow
+        }
         if ($output) {
             $output | ForEach-Object { Write-Host $_ -ForegroundColor Red }
         }

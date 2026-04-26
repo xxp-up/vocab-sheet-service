@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
@@ -18,6 +19,12 @@ class UnsupportedAudioFormatError(AudioServiceError):
     """Raised when the input audio file cannot be decoded locally."""
 
 
+@dataclass(slots=True)
+class AudioTranscriptionResult:
+    transcript_text: str
+    candidate_words: list[str]
+
+
 class AudioService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -25,9 +32,15 @@ class AudioService:
     async def extract_words(self, audio_path: Path | None, hints: list[str] | None = None) -> list[str]:
         if audio_path is None:
             return []
-        return await asyncio.to_thread(self._extract_words_sync, audio_path, hints or [])
+        result = await asyncio.to_thread(self._transcribe_sync, audio_path, hints or [])
+        return result.candidate_words
 
-    def _extract_words_sync(self, audio_path: Path, hints: list[str]) -> list[str]:
+    async def transcribe_audio(self, audio_path: Path | None, hints: list[str] | None = None) -> AudioTranscriptionResult:
+        if audio_path is None:
+            return AudioTranscriptionResult(transcript_text="", candidate_words=[])
+        return await asyncio.to_thread(self._transcribe_sync, audio_path, hints or [])
+
+    def _transcribe_sync(self, audio_path: Path, hints: list[str]) -> AudioTranscriptionResult:
         try:
             _, model_path = ensure_speech_runtime(
                 self.settings.runtime_root_path,
@@ -76,7 +89,11 @@ class AudioService:
         except Exception as exc:
             raise AudioServiceError("本地免费语音识别失败。") from exc
 
-        return merge_words(extract_candidate_words(" ".join(text_parts)))
+        transcript_text = " ".join(part.strip() for part in text_parts if part.strip()).strip()
+        return AudioTranscriptionResult(
+            transcript_text=transcript_text,
+            candidate_words=merge_words(extract_candidate_words(transcript_text)),
+        )
 
 
 def _resample_frame(resampler, frame) -> list[bytes]:

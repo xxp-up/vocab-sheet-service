@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>教材题词与课后反馈工作台</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <svg width="0" height="0" class="icon-sprite" aria-hidden="true" focusable="false">
+      <symbol id="icon-book-open" viewBox="0 0 24 24">
+        <path d="M12 7v14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="M3 18.5c0-1.1.9-2 2-2h7v-12H5c-1.1 0-2 .9-2 2Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="M21 18.5c0-1.1-.9-2-2-2h-7v-12h7c1.1 0 2 .9 2 2Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+      </symbol>
+      <symbol id="icon-message-square" viewBox="0 0 24 24">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+      </symbol>
+      <symbol id="icon-shield" viewBox="0 0 24 24">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+      </symbol>
+      <symbol id="icon-circle-help" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"></circle>
+        <path d="M9.2 9.4a3 3 0 1 1 4.8 2.4c-.8.6-1.5 1.2-1.5 2.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+        <circle cx="12" cy="17.1" r="1" fill="currentColor"></circle>
+      </symbol>
+      <symbol id="icon-mic" viewBox="0 0 24 24">
+        <path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 1 1-6 0V6a3 3 0 0 1 3-3Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="M12 19v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+      </symbol>
+      <symbol id="icon-upload" viewBox="0 0 24 24">
+        <path d="M12 16V4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+        <path d="m7 9 5-5 5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="M4 20h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+      </symbol>
+      <symbol id="icon-download" viewBox="0 0 24 24">
+        <path d="M12 4v12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+        <path d="m7 11 5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="M4 20h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+      </symbol>
+      <symbol id="icon-copy" viewBox="0 0 24 24">
+        <rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"></rect>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+      </symbol>
+      <symbol id="icon-refresh" viewBox="0 0 24 24">
+        <path d="M21 2v6h-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="M3 12a9 9 0 0 1 15.3-6.4L21 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="M3 22v-6h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="M21 12a9 9 0 0 1-15.3 6.4L3 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+      </symbol>
+      <symbol id="icon-sparkles" viewBox="0 0 24 24">
+        <path d="M12 3 13.6 8.4 19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="M19 3v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+        <path d="M21 5h-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+      </symbol>
+    </svg>
+
+    <div class="workspace-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <p class="eyebrow">Lesson Operations Desk</p>
+          <h1>教材题词与课后反馈工作台</h1>
+          <p class="lead">把教材上传、补词、进度跟踪、课后总结和系统配置收进同一个清晰工作台。</p>
+        </div>
+        <div class="template-note">
+          <span class="template-label">固定模板</span>
+          <strong>template/test 6单词表模板.xlsx</strong>
+          <p>题词结果将自动回填到该模板并生成下载文件。</p>
+        </div>
+      </header>
+
+      <nav class="tabbar" aria-label="工作台模块">
+        <button class="tab-button active" type="button" data-tab-target="vocab-panel">
+          <svg class="tab-icon"><use href="#icon-book-open"></use></svg>
+          <span>教材题词</span>
+        </button>
+        <button class="tab-button" type="button" data-tab-target="feedback-panel">
+          <svg class="tab-icon"><use href="#icon-message-square"></use></svg>
+          <span>课后反馈</span>
+        </button>
+        <button class="tab-button" type="button" data-tab-target="settings-panel">
+          <svg class="tab-icon"><use href="#icon-shield"></use></svg>
+          <span>系统配置</span>
+        </button>
+      </nav>
+
+      <div class="workspace-grid">
+        <main class="main-column">
+          <div id="global-banner" class="banner hidden" role="status"></div>
+
+          <section id="vocab-panel" class="panel active" data-panel>
+            <div class="panel-head">
+              <div>
+                <p class="section-kicker">教材题词流程</p>
+                <h2>上传教材，补充候选词，生成词表</h2>
+              </div>
+              <p class="section-meta">流程：教材上传 → 可选音频 → 手工补词 → 处理任务 → 自动下载 Excel</p>
+            </div>
+
+            <form id="vocab-form" class="form-stack" novalidate>
+              <section class="input-section">
+                <div class="section-title-row">
+                  <h3>上传教材</h3>
+                  <div class="section-tools">
+                    <span class="badge badge-required">必选</span>
+                    <button class="help-button" type="button" aria-label="查看教材处理规则" data-tooltip-trigger>
+                      <svg><use href="#icon-circle-help"></use></svg>
+                    </button>
+                    <div class="tooltip-card" data-tooltip-content>
+                      支持 PDF / DOCX；DOCX 优先识别连续红字、下划线、批注；PDF 可识别红字、下划线、框选、高亮等明显强调；只提取被明确标注的英文词或词组；词组需连续标注；正文中必须能定位到例句；若 DOCX 主要依赖背景色高亮，建议先转 PDF。
+                    </div>
+                  </div>
+                </div>
+                <label class="upload-card">
+                  <input id="teaching-file" name="teaching_file" type="file" accept=".pdf,.docx" required />
+                  <div class="upload-card-inner">
+                    <svg class="upload-icon"><use href="#icon-upload"></use></svg>
+                    <strong>选择教材文件</strong>
+                    <span class="upload-subtext">支持 .pdf / .docx，推荐上传已处理并完成标注的教材</span>
+                    <span id="teaching-file-name" class="file-chip">未选择文件</span>
+                  </div>
+                </label>
+              </section>
+
+              <section class="input-section">
+                <div class="section-title-row">
+                  <h3>语音上传入口</h3>
+                  <div class="section-tools">
+                    <span class="badge badge-optional">可选</span>
+                    <button class="help-button" type="button" aria-label="查看语音上传说明" data-tooltip-trigger>
+                      <svg><use href="#icon-circle-help"></use></svg>
+                    </button>
+                    <div class="tooltip-card" data-tooltip-content>
+                      上传课堂或朗读音频，仅用于补充候选单词；最终仍以教材正文能否定位例句为准。
+                    </div>
+                  </div>
+                </div>
+                <label class="upload-card compact">
+                  <input id="audio-file" name="audio_file" type="file" accept="audio/*" />
+                  <div class="upload-card-inner">
+                    <strong>添加音频文件</strong>
+                    <span class="upload-subtext">支持常见音频格式，系统会进行本地识别并补充候选词</span>
+                    <span id="audio-file-name" class="file-chip">未选择文件</span>
+                  </div>
+                </label>
+              </section>
+
+              <section class="input-section">
+                <div class="section-title-row">
+                  <h3>手工补词</h3>
+                  <div class="section-tools">
+                    <span class="badge badge-optional">可选</span>
+                  </div>
+                </div>
+                <div class="manual-words-box">
+                  <div class="manual-words-toolbar">
+                    <p>支持手输和点麦说词，识别结果会自动去重并回填。</p>
+                    <button id="manual-mic-button" class="secondary-button icon-button" type="button">
+                      <svg><use href="#icon-mic"></use></svg>
+                      <span>点麦补词</span>
+                    </button>
+                  </div>
+                  <textarea
+                    id="words-text"
+                    name="words_text"
+                    rows="5"
+                    placeholder="例如：apple, improve, growth mindset"
+                  ></textarea>
+                  <div id="manual-words-chips" class="chips-row"></div>
+                  <p class="field-note">未能在教材正文定位例句的词，不会写入最终表格。</p>
+                </div>
+              </section>
+
+              <section class="submit-strip">
+                <div>
+                  <p class="submit-title">准备开始处理</p>
+                  <p class="submit-subtext">提交后会在右侧显示当前任务进度，完成后自动下载 .xlsx 文件。</p>
+                </div>
+                <button id="vocab-submit" class="primary-button" type="submit">
+                  <svg><use href="#icon-sparkles"></use></svg>
+                  <span>开始生成词表</span>
+                </button>
+              </section>
+            </form>
+          </section>
+
+          <section id="feedback-panel" class="panel" data-panel>
+            <div class="panel-head">
+              <div>
+                <p class="section-kicker">课后反馈流程</p>
+                <h2>导入课堂内容，生成可编辑反馈</h2>
+              </div>
+              <p class="section-meta">流程：音频或逐字稿输入 → 自动生成结构化草稿 → 页面内编辑与复制</p>
+            </div>
+
+            <form id="feedback-form" class="form-stack" novalidate>
+              <section class="input-section meta-grid">
+                <label>
+                  <span>上课日期</span>
+                  <input id="lesson-date" name="lesson_date" type="date" required />
+                </label>
+                <label>
+                  <span>节次</span>
+                  <input id="lesson-index" name="lesson_index" type="number" min="1" step="1" value="1" required />
+                </label>
+                <label>
+                  <span>班级 / 课程名</span>
+                  <input id="class-name" name="class_name" type="text" placeholder="例如：五年级英语提高班" />
+                </label>
+              </section>
+
+              <section class="input-section split-source">
+                <div class="source-card">
+                  <div class="section-title-row">
+                    <h3>上传课堂音频</h3>
+                    <span class="badge badge-optional">可选</span>
+                  </div>
+                  <label class="upload-card compact">
+                    <input id="feedback-audio-file" name="audio_file" type="file" accept="audio/*" />
+                    <div class="upload-card-inner">
+                      <strong>选择课堂音频</strong>
+                      <span class="upload-subtext">适合从本地录音直接生成反馈草稿</span>
+                      <span id="feedback-audio-file-name" class="file-chip">未选择文件</span>
+                    </div>
+                  </label>
+                </div>
+                <div class="source-card">
+                  <div class="section-title-row">
+                    <h3>粘贴逐字稿</h3>
+                    <span class="badge badge-optional">可选</span>
+                  </div>
+                  <textarea
+                    id="feedback-transcript"
+                    name="transcript_text"
+                    rows="8"
+                    placeholder="可以直接粘贴课堂逐字稿、老师笔记或转写文本。"
+                  ></textarea>
+                </div>
+              </section>
+
+              <section class="submit-strip">
+                <div>
+                  <p class="submit-title">生成反馈草稿</p>
+                  <p class="submit-subtext">生成后可按模块编辑、恢复原稿、复制全文或单独复制作业。</p>
+                </div>
+                <button id="feedback-submit" class="primary-button" type="submit">
+                  <svg><use href="#icon-sparkles"></use></svg>
+                  <span>开始生成反馈</span>
+                </button>
+              </section>
+            </form>
+
+            <section id="feedback-editor" class="feedback-editor hidden">
+              <div class="editor-head">
+                <div>
+                  <p class="section-kicker">生成结果</p>
+                  <h3>课后反馈草稿</h3>
+                </div>
+                <div class="editor-actions">
+                  <button id="copy-feedback-button" class="secondary-button icon-button" type="button">
+                    <svg><use href="#icon-copy"></use></svg>
+                    <span>复制全文</span>
+                  </button>
+                  <button id="copy-homework-button" class="secondary-button icon-button" type="button">
+                    <svg><use href="#icon-copy"></use></svg>
+                    <span>复制作业</span>
+                  </button>
+                </div>
+              </div>
+              <div id="feedback-sections" class="feedback-sections"></div>
+            </section>
+          </section>
+
+          <section id="settings-panel" class="panel" data-panel>
+            <div class="panel-head">
+              <div>
+                <p class="section-kicker">系统配置</p>
+                <h2>维护密钥、模型和运行参数</h2>
+              </div>
+              <p class="section-meta">密钥默认脱敏显示；保存后仅新任务使用新配置。</p>
+            </div>
+
+            <form id="settings-form" class="form-stack" novalidate>
+              <section class="input-section">
+                <div class="section-title-row">
+                  <h3>安全密钥</h3>
+                </div>
+                <label>
+                  <span>VISION_API_KEY</span>
+                  <input id="vision-api-key" name="vision_api_key" type="password" autocomplete="off" placeholder="未修改时留空，将沿用当前密钥" />
+                </label>
+                <p id="settings-key-hint" class="field-note">当前密钥状态将在页面加载后显示，保存时不会回显明文。</p>
+              </section>
+
+              <section class="input-section settings-grid">
+                <div class="settings-block">
+                  <div class="section-title-row">
+                    <h3>视觉模型</h3>
+                  </div>
+                  <label>
+                    <span>VISION_BASE_URL</span>
+                    <input id="vision-base-url" name="vision_base_url" type="url" required />
+                  </label>
+                  <label>
+                    <span>VISION_MODEL</span>
+                    <input id="vision-model" name="vision_model" type="text" required />
+                  </label>
+                </div>
+
+                <div class="settings-block">
+                  <div class="section-title-row">
+                    <h3>运行参数</h3>
+                  </div>
+                  <label>
+                    <span>REQUEST_TIMEOUT_SECONDS</span>
+                    <input id="request-timeout" name="request_timeout_seconds" type="number" min="1" step="1" required />
+                  </label>
+                  <label>
+                    <span>VISION_TIMEOUT_SECONDS</span>
+                    <input id="vision-timeout" name="vision_timeout_seconds" type="number" min="1" step="1" required />
+                  </label>
+                  <label>
+                    <span>RUNTIME_ROOT</span>
+                    <input id="runtime-root" name="runtime_root" type="text" required />
+                  </label>
+                </div>
+              </section>
+
+              <section class="submit-strip compact-actions">
+                <div>
+                  <p class="submit-title">保存前建议先校验</p>
+                  <p class="submit-subtext">校验只测试当前表单值能否连通视觉服务，不会落盘。</p>
+                </div>
+                <div class="inline-actions">
+                  <button id="settings-validate" class="secondary-button" type="button">测试连接</button>
+                  <button id="settings-save" class="primary-button" type="submit">保存配置</button>
+                </div>
+              </section>
+            </form>
+          </section>
+        </main>
+
+        <aside class="status-column">
+          <section class="status-card">
+            <div class="status-head">
+              <div>
+                <p class="section-kicker">当前任务</p>
+                <h2 id="status-title">尚未开始</h2>
+              </div>
+              <span id="status-context" class="status-context">请选择左侧模块开始操作</span>
+            </div>
+
+            <div class="progress-wrap">
+              <div class="progress-meta">
+                <strong id="progress-label">等待开始</strong>
+                <span id="progress-percent">0%</span>
+              </div>
+              <div class="progress-track">
+                <div id="progress-bar" class="progress-bar"></div>
+              </div>
+            </div>
+
+            <ul id="vocab-stage-list" class="stage-list">
+              <li data-stage="upload_validation">上传校验</li>
+              <li data-stage="document_parsing">教材解析</li>
+              <li data-stage="merge_candidates">音频/补词合并</li>
+              <li data-stage="lexicon_enrichment">词典补全</li>
+              <li data-stage="sentence_matching">例句定位</li>
+              <li data-stage="workbook_writing">模板写入</li>
+              <li data-stage="download_ready">准备下载</li>
+            </ul>
+
+            <div id="status-message" class="status-message">提交任务后，这里会展示当前处理进度与结果摘要。</div>
+
+            <div id="result-card" class="result-card hidden">
+              <div class="result-stats">
+                <div>
+                  <span class="result-label">写入词数</span>
+                  <strong id="rows-written">0</strong>
+                </div>
+                <div>
+                  <span class="result-label">跳过词数</span>
+                  <strong id="rows-skipped">0</strong>
+                </div>
+              </div>
+              <div id="skip-reasons" class="skip-reasons"></div>
+              <button id="redownload-button" class="secondary-button icon-button hidden" type="button">
+                <svg><use href="#icon-download"></use></svg>
+                <span>重新下载</span>
+              </button>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </div>
+
+    <div id="toast" class="toast hidden" role="status"></div>
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>
