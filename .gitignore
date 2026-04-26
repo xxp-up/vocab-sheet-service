@@ -1,0 +1,14 @@
+.venv/
+.python312/
+.tmp/
+__pycache__/
+.pytest_cache/
+pytest-cache-files-*/
+.mypy_cache/
+.ruff_cache/
+tmp*/
+*.egg-info/
+.env
+.runtime/
+dist/
+python-3.12.9-amd64.exe
