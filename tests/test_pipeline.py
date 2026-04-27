@@ -277,10 +277,11 @@ def test_process_writes_manual_word_without_sentence_when_missing_in_textbook() 
     assert result.rows_written == 2
     manual_row = result.written_rows[1]
     assert manual_row.word == "banana"
-    assert manual_row.example == ""
+    assert manual_row.example == "The term banana is used in this lesson."
     assert manual_row.example_page is None
     assert manual_row.sources == ["manual"]
-    assert result.skipped_words == {"banana": "未在教材正文中定位到例句"}
+    assert result.skipped_words == {}
+    assert result.skipped_items == []
 
 
 def test_process_writes_row_and_marks_exception_when_meaning_is_missing() -> None:

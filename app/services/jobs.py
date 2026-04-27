@@ -218,7 +218,7 @@ class JobStore:
         async with self._lock:
             record = self.vocab_jobs.get(job_id)
         if record is None:
-            raise HTTPException(status_code=404, detail="未找到对应的教材题词任务。")
+            raise HTTPException(status_code=404, detail="未找到对应的教材提词任务。")
         return record.to_status_response()
 
     async def get_feedback_job(self, job_id: str) -> FeedbackJobStatusResponse:

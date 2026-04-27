@@ -108,6 +108,7 @@ class PipelineService:
         rows: list[VocabRow] = []
         exception_words: dict[str, str] = {}
         exception_items: list[VocabSkippedItem] = []
+
         for word in merged_words:
             normalized_word = normalize_word(word)
             source_names = _resolve_sources(
@@ -120,7 +121,15 @@ class PipelineService:
             meaning = meanings.get(normalized_word)
             issues: list[str] = []
 
-            if sentence is None:
+            if sentence is not None:
+                example = sentence.text
+                example_page = sentence.page_number
+            elif normalized_word in manual_keys:
+                example = _build_generated_example(word)
+                example_page = None
+            else:
+                example = ""
+                example_page = None
                 issues.append("未在教材正文中定位到例句")
 
             if meaning is None and not is_multiword_term(word):
@@ -137,8 +146,8 @@ class PipelineService:
                     ipa=meaning.ipa if meaning is not None else "",
                     pos_abbr=meaning.pos_abbr if meaning is not None else "",
                     zh_meaning=meaning.zh_meaning if meaning is not None else "",
-                    example=sentence.text if sentence is not None else "",
-                    example_page=sentence.page_number if sentence is not None else None,
+                    example=example,
+                    example_page=example_page,
                     sources=source_names,
                 )
             )
@@ -169,6 +178,10 @@ def _resolve_sources(parsed_document_words, normalized_word: str, manual_keys: s
     if normalized_word in manual_keys and "manual" not in source_names:
         source_names.append("manual")
     return source_names
+
+
+def _build_generated_example(word: str) -> str:
+    return f"The term {word} is used in this lesson."
 
 
 async def _emit_progress(progress_callback: ProgressCallback | None, stage_code: str, progress_percent: int, stage_label: str) -> None:

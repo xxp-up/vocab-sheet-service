@@ -60,7 +60,7 @@ def test_index_renders_workspace_sections() -> None:
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "教材题词与课后反馈工作台" in response.text
+    assert "教材提词与课后反馈工作台" in response.text
     assert "系统配置" in response.text
     assert "支持 PDF / DOCX" in response.text
     assert "写入明细" in response.text

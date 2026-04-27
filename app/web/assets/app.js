@@ -13,7 +13,7 @@ const SETTINGS_SAVE_BLOCKED_MESSAGE = "后台任务正在运行，请等待后�
 const VIEW_CONFIG = {
   vocab: {
     panelId: "vocab-panel",
-    title: "教材题词",
+    title: "教材提词",
     defaultContext: "请提交教材任务或查看当前进度",
     idleStageLabel: "等待开始",
     idleMessage: "提交任务后，这里会展示当前处理进度与结果摘要。",
