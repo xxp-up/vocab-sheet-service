@@ -36,6 +36,8 @@ FEEDBACK_JOB_STAGES = {
     "draft_ready": (100, "草稿可编辑"),
 }
 
+ACTIVE_JOB_STATUSES = {"queued", "processing"}
+
 
 @dataclass(slots=True)
 class VocabJobRecord:
@@ -131,6 +133,13 @@ class JobStore:
         self.vocab_jobs: dict[str, VocabJobRecord] = {}
         self.feedback_jobs: dict[str, FeedbackJobRecord] = {}
         self._lock = asyncio.Lock()
+
+    async def has_running_jobs(self) -> bool:
+        await self._cleanup_expired_jobs()
+        async with self._lock:
+            return any(record.status in ACTIVE_JOB_STATUSES for record in self.vocab_jobs.values()) or any(
+                record.status in ACTIVE_JOB_STATUSES for record in self.feedback_jobs.values()
+            )
 
     async def create_vocab_job(
         self,

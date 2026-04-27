@@ -265,7 +265,12 @@ def test_settings_routes_use_manager_dependency() -> None:
             assert payload.runtime_root == ".runtime"
             return SettingsValidateResponse(ok=True, detail="ok")
 
+    class _IdleJobStore:
+        async def has_running_jobs(self) -> bool:
+            return False
+
     app.dependency_overrides[routes.get_settings_manager] = lambda: _FakeSettingsManager()
+    app.dependency_overrides[routes.get_job_store] = lambda: _IdleJobStore()
     client = TestClient(app)
 
     read_response = client.get("/v1/settings")
@@ -299,6 +304,36 @@ def test_settings_routes_use_manager_dependency() -> None:
     assert update_response.json()["vision_model"] == "model-b"
     assert validate_response.status_code == 200
     assert validate_response.json()["ok"] is True
+
+
+def test_update_settings_rejects_when_background_job_is_running() -> None:
+    class _FakeSettingsManager:
+        def update_settings(self, payload: SettingsUpdateRequest) -> SettingsResponse:
+            raise AssertionError("update_settings should not be called while jobs are running")
+
+    class _BusyJobStore:
+        async def has_running_jobs(self) -> bool:
+            return True
+
+    app.dependency_overrides[routes.get_settings_manager] = lambda: _FakeSettingsManager()
+    app.dependency_overrides[routes.get_job_store] = lambda: _BusyJobStore()
+    client = TestClient(app)
+
+    response = client.put(
+        "/v1/settings",
+        json={
+            "request_timeout_seconds": 90,
+            "runtime_root": ".runtime",
+            "vision_api_key": None,
+            "vision_base_url": "https://api.example.com/v1",
+            "vision_model": "model-b",
+            "vision_timeout_seconds": 80,
+        },
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 409
+    assert response.json()["detail"] == routes.SETTINGS_SAVE_BLOCKED_MESSAGE
 
 
 def test_validate_settings_maps_validation_error() -> None:

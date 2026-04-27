@@ -43,6 +43,7 @@ logger = logging.getLogger("vocab_sheet_service.api")
 INDEX_HTML_PATH = Path(__file__).resolve().parents[1] / "web" / "index.html"
 JOB_STORE = JobStore()
 SETTINGS_MANAGER = SettingsManager()
+SETTINGS_SAVE_BLOCKED_MESSAGE = "后台任务正在运行，请等待后台任务运行完成后再进行系统配置修改保存。"
 
 
 def build_pipeline(settings: Settings) -> PipelineService:
@@ -250,7 +251,10 @@ async def read_settings(manager: SettingsManager = Depends(get_settings_manager)
 async def update_settings(
     payload: SettingsUpdateRequest,
     manager: SettingsManager = Depends(get_settings_manager),
+    job_store: JobStore = Depends(get_job_store),
 ) -> SettingsResponse:
+    if await job_store.has_running_jobs():
+        raise HTTPException(status_code=409, detail=SETTINGS_SAVE_BLOCKED_MESSAGE)
     return manager.update_settings(payload)
 
 

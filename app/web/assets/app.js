@@ -6,6 +6,7 @@ const STORAGE_KEYS = {
 };
 
 const POLL_INTERVAL_MS = 1800;
+const SETTINGS_SAVE_BLOCKED_MESSAGE = "后台任务正在运行，请等待后台任务运行完成后再进行系统配置修改保存。";
 
 const VIEW_CONFIG = {
   vocab: {
@@ -27,7 +28,7 @@ const VIEW_CONFIG = {
     title: "系统配置",
     defaultContext: "可先测试连接，再保存新的运行配置",
     idleStageLabel: "配置就绪",
-    idleMessage: "系统配置不参与后台任务处理，可在左侧测试连接并保存最新参数。",
+    idleMessage: "可在左侧先测试连接；若后台任务仍在运行，需等待完成后再保存最新参数。",
   },
 };
 
@@ -247,6 +248,10 @@ function bindSettingsForm() {
 
   form?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!canSaveSettings()) {
+      showBanner(SETTINGS_SAVE_BLOCKED_MESSAGE);
+      return;
+    }
     try {
       const payload = collectSettingsPayload();
       const response = await requestJSON("/v1/settings", {
@@ -564,6 +569,7 @@ function renderStatusCard() {
   statusMessage.textContent = snapshot?.message || config.idleMessage;
 
   renderSecondaryTaskHint(viewKind);
+  syncSettingsSaveState();
   renderStageList(viewKind);
 
   const percent = Math.max(0, Math.min(100, snapshot?.progressPercent ?? 0));
@@ -597,7 +603,7 @@ function getBackgroundTaskSnapshot(viewKind) {
     if (kind === viewKind) {
       return false;
     }
-    return state.jobSnapshots[kind]?.status === "processing";
+    return isActiveJobStatus(state.jobSnapshots[kind]?.status);
   });
 
   if (!processingKinds.length) {
@@ -800,6 +806,30 @@ function getKindFromPanelId(panelId) {
 
 function isTerminalStatus(status) {
   return status === "completed" || status === "failed";
+}
+
+function isActiveJobStatus(status) {
+  return status === "queued" || status === "processing";
+}
+
+function canSaveSettings() {
+  return !["vocab", "feedback"].some((kind) => isActiveJobStatus(state.jobSnapshots[kind]?.status));
+}
+
+function syncSettingsSaveState() {
+  const button = document.getElementById("settings-save");
+  if (!button) {
+    return;
+  }
+
+  const blocked = !canSaveSettings();
+  button.classList.toggle("is-disabled", blocked);
+  button.setAttribute("aria-disabled", String(blocked));
+  if (blocked) {
+    button.title = SETTINGS_SAVE_BLOCKED_MESSAGE;
+    return;
+  }
+  button.removeAttribute("title");
 }
 
 async function uploadRecordedWords() {

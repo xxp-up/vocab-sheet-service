@@ -497,6 +497,27 @@ input:focus {
   color: var(--accent);
 }
 
+.primary-button.is-disabled,
+.secondary-button.is-disabled {
+  opacity: 0.46;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.primary-button.is-disabled:hover,
+.secondary-button.is-disabled:hover {
+  transform: none;
+}
+
+.primary-button.is-disabled:hover {
+  color: #fff8ec;
+}
+
+.secondary-button.is-disabled:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
 .icon-button {
   white-space: nowrap;
 }
