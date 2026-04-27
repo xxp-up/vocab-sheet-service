@@ -5,6 +5,32 @@ const STORAGE_KEYS = {
   downloadedJobId: "vocab-workspace:downloaded-job-id",
 };
 
+const POLL_INTERVAL_MS = 1800;
+
+const VIEW_CONFIG = {
+  vocab: {
+    panelId: "vocab-panel",
+    title: "教材题词",
+    defaultContext: "请提交教材任务或查看当前进度",
+    idleStageLabel: "等待开始",
+    idleMessage: "提交任务后，这里会展示当前处理进度与结果摘要。",
+  },
+  feedback: {
+    panelId: "feedback-panel",
+    title: "课后反馈",
+    defaultContext: "提交反馈任务后可在右侧查看进度",
+    idleStageLabel: "等待开始",
+    idleMessage: "提交反馈任务后，这里会同步展示草稿生成进度与编辑准备状态。",
+  },
+  settings: {
+    panelId: "settings-panel",
+    title: "系统配置",
+    defaultContext: "可先测试连接，再保存新的运行配置",
+    idleStageLabel: "配置就绪",
+    idleMessage: "系统配置不参与后台任务处理，可在左侧测试连接并保存最新参数。",
+  },
+};
+
 const stageSets = {
   vocab: [
     ["upload_validation", "上传校验"],
@@ -21,12 +47,38 @@ const stageSets = {
     ["draft_generating", "生成反馈草稿"],
     ["draft_ready", "草稿可编辑"],
   ],
+  settings: [],
+};
+
+const JOB_STORAGE_KEYS = {
+  vocab: STORAGE_KEYS.vocabJobId,
+  feedback: STORAGE_KEYS.feedbackJobId,
+};
+
+const JOB_ENDPOINTS = {
+  vocab: "/v1/vocab/jobs",
+  feedback: "/v1/feedback/jobs",
 };
 
 const state = {
-  pollTimer: null,
-  activeTaskKind: "vocab",
-  activeTaskId: null,
+  currentTab: "vocab",
+  pollTimers: {
+    vocab: null,
+    feedback: null,
+  },
+  activeJobIds: {
+    vocab: null,
+    feedback: null,
+  },
+  jobSnapshots: {
+    vocab: null,
+    feedback: null,
+  },
+  viewContextOverrides: {
+    vocab: null,
+    feedback: null,
+    settings: null,
+  },
   currentDownloadUrl: null,
   feedbackOriginals: new Map(),
   isRecording: false,
@@ -41,28 +93,20 @@ document.addEventListener("DOMContentLoaded", () => {
   bindFeedbackForm();
   bindSettingsForm();
   bindManualMic();
+  activateTab(resolveInitialTab());
   hydrateDefaults();
   loadSettings();
-  restoreCurrentTask();
   syncManualWordsChips();
-  renderStageList("vocab");
+  restoreCurrentTask();
 });
 
 function bindTabs() {
   const buttons = document.querySelectorAll("[data-tab-target]");
-  const panels = document.querySelectorAll("[data-panel]");
-
   buttons.forEach((button) => {
     button.addEventListener("click", () => {
-      const target = button.dataset.tabTarget;
-      buttons.forEach((item) => item.classList.toggle("active", item === button));
-      panels.forEach((panel) => panel.classList.toggle("active", panel.id === target));
-      if (target === "vocab-panel") {
-        updateStatusContext("教材题词", "请提交教材任务或查看当前进度");
-      } else if (target === "feedback-panel") {
-        updateStatusContext("课后反馈", "提交反馈任务后可在右侧查看进度");
-      } else {
-        updateStatusContext("系统配置", "可先测试连接，再保存新的运行配置");
+      const kind = getKindFromPanelId(button.dataset.tabTarget);
+      if (kind) {
+        activateTab(kind);
       }
     });
   });
@@ -102,21 +146,35 @@ function bindVocabForm() {
     }
 
     const formData = new FormData(form);
-    updateStatusMode("vocab");
-    updateStatusContext("教材题词", "正在提交教材题词任务");
+    activateTab("vocab");
+    localStorage.setItem(STORAGE_KEYS.lastTaskKind, "vocab");
+    setJobSnapshot("vocab", {
+      status: "processing",
+      stageCode: null,
+      stageLabel: "提交任务中",
+      progressPercent: 3,
+      message: "正在创建任务...",
+      jobId: null,
+      raw: null,
+    });
     resetResultCard();
-    setProgress({ stageLabel: "提交任务中", percent: 3, title: "教材题词", message: "正在创建任务..." });
 
     try {
-      const created = await requestJSON("/v1/vocab/jobs", { method: "POST", body: formData });
+      const created = await requestJSON(JOB_ENDPOINTS.vocab, { method: "POST", body: formData });
       localStorage.setItem(STORAGE_KEYS.vocabJobId, created.job_id);
-      localStorage.setItem(STORAGE_KEYS.lastTaskKind, "vocab");
-      state.activeTaskKind = "vocab";
-      state.activeTaskId = created.job_id;
-      await pollVocabJob(created.job_id);
+      state.activeJobIds.vocab = created.job_id;
+      await startJobPolling("vocab", created.job_id);
     } catch (error) {
       showBanner(resolveErrorMessage(error));
-      setProgress({ stageLabel: "提交失败", percent: 0, title: "教材题词", message: resolveErrorMessage(error) });
+      setJobSnapshot("vocab", {
+        status: "failed",
+        stageCode: null,
+        stageLabel: "提交失败",
+        progressPercent: 0,
+        message: resolveErrorMessage(error),
+        jobId: null,
+        raw: null,
+      });
     }
   });
 }
@@ -136,20 +194,35 @@ function bindFeedbackForm() {
     }
 
     const formData = new FormData(form);
-    updateStatusMode("feedback");
-    updateStatusContext("课后反馈", "正在提交课后反馈任务");
-    setProgress({ stageLabel: "提交任务中", percent: 3, title: "课后反馈", message: "正在创建反馈任务..." });
+    activateTab("feedback");
+    localStorage.setItem(STORAGE_KEYS.lastTaskKind, "feedback");
+    document.getElementById("feedback-editor").classList.add("hidden");
+    setJobSnapshot("feedback", {
+      status: "processing",
+      stageCode: null,
+      stageLabel: "提交任务中",
+      progressPercent: 3,
+      message: "正在创建反馈任务...",
+      jobId: null,
+      raw: null,
+    });
 
     try {
-      const created = await requestJSON("/v1/feedback/jobs", { method: "POST", body: formData });
+      const created = await requestJSON(JOB_ENDPOINTS.feedback, { method: "POST", body: formData });
       localStorage.setItem(STORAGE_KEYS.feedbackJobId, created.job_id);
-      localStorage.setItem(STORAGE_KEYS.lastTaskKind, "feedback");
-      state.activeTaskKind = "feedback";
-      state.activeTaskId = created.job_id;
-      await pollFeedbackJob(created.job_id);
+      state.activeJobIds.feedback = created.job_id;
+      await startJobPolling("feedback", created.job_id);
     } catch (error) {
       showBanner(resolveErrorMessage(error));
-      setProgress({ stageLabel: "提交失败", percent: 0, title: "课后反馈", message: resolveErrorMessage(error) });
+      setJobSnapshot("feedback", {
+        status: "failed",
+        stageCode: null,
+        stageLabel: "提交失败",
+        progressPercent: 0,
+        message: resolveErrorMessage(error),
+        jobId: null,
+        raw: null,
+      });
     }
   });
 
@@ -183,8 +256,8 @@ function bindSettingsForm() {
       });
       applySettings(response);
       document.getElementById("vision-api-key").value = "";
+      setViewContextOverride("settings", "配置保存成功");
       showToast("配置已保存，新任务将使用最新设置。");
-      updateStatusContext("系统配置", "配置保存成功");
     } catch (error) {
       showBanner(resolveErrorMessage(error));
     }
@@ -198,11 +271,11 @@ function bindSettingsForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      setViewContextOverride("settings", "连接校验通过");
       showToast(response.detail || "连接校验通过。");
-      updateStatusContext("系统配置", "连接校验通过");
     } catch (error) {
       showBanner(resolveErrorMessage(error));
-      updateStatusContext("系统配置", "连接校验失败");
+      setViewContextOverride("settings", "连接校验失败");
     }
   });
 }
@@ -287,157 +360,301 @@ function collectSettingsPayload() {
   };
 }
 
-function restoreCurrentTask() {
+function resolveInitialTab() {
   const lastTaskKind = localStorage.getItem(STORAGE_KEYS.lastTaskKind);
+  if ((lastTaskKind === "vocab" || lastTaskKind === "feedback") && localStorage.getItem(JOB_STORAGE_KEYS[lastTaskKind])) {
+    return lastTaskKind;
+  }
+  return "vocab";
+}
+
+function restoreCurrentTask() {
   const vocabJobId = localStorage.getItem(STORAGE_KEYS.vocabJobId);
   const feedbackJobId = localStorage.getItem(STORAGE_KEYS.feedbackJobId);
 
-  if (lastTaskKind === "feedback" && feedbackJobId) {
-    state.activeTaskKind = "feedback";
-    state.activeTaskId = feedbackJobId;
-    updateStatusMode("feedback");
-    pollFeedbackJob(feedbackJobId);
-    return;
-  }
-
   if (vocabJobId) {
-    state.activeTaskKind = "vocab";
-    state.activeTaskId = vocabJobId;
-    updateStatusMode("vocab");
-    pollVocabJob(vocabJobId);
-    return;
+    state.activeJobIds.vocab = vocabJobId;
+    void startJobPolling("vocab", vocabJobId);
   }
 
   if (feedbackJobId) {
-    state.activeTaskKind = "feedback";
-    state.activeTaskId = feedbackJobId;
-    updateStatusMode("feedback");
-    pollFeedbackJob(feedbackJobId);
+    state.activeJobIds.feedback = feedbackJobId;
+    void startJobPolling("feedback", feedbackJobId);
+  }
+
+  renderStatusCard();
+}
+
+async function startJobPolling(kind, jobId) {
+  stopJobPolling(kind);
+  state.activeJobIds[kind] = jobId;
+  await refreshJob(kind, jobId);
+  const snapshot = state.jobSnapshots[kind];
+  if (!snapshot || snapshot.jobId !== jobId || isTerminalStatus(snapshot.status)) {
+    return;
+  }
+  state.pollTimers[kind] = window.setInterval(() => {
+    void refreshJob(kind, jobId);
+  }, POLL_INTERVAL_MS);
+}
+
+function stopJobPolling(kind) {
+  if (state.pollTimers[kind]) {
+    window.clearInterval(state.pollTimers[kind]);
+    state.pollTimers[kind] = null;
   }
 }
 
-async function pollVocabJob(jobId) {
-  clearPoller();
-  updateStatusMode("vocab");
-  updateStatusContext("教材题词", `任务 ID: ${jobId.slice(0, 8)}`);
-  await refreshVocabJob(jobId);
-  state.pollTimer = window.setInterval(() => refreshVocabJob(jobId), 1800);
-}
-
-async function refreshVocabJob(jobId) {
+async function refreshJob(kind, jobId) {
   try {
-    const job = await requestJSON(`/v1/vocab/jobs/${jobId}`);
-    state.activeTaskKind = "vocab";
-    state.activeTaskId = jobId;
-    renderVocabJob(job);
-    if (job.status === "completed" || job.status === "failed") {
-      clearPoller();
+    const job = await requestJSON(`${JOB_ENDPOINTS[kind]}/${jobId}`);
+    state.activeJobIds[kind] = jobId;
+    if (kind === "vocab") {
+      handleVocabJob(job);
+    } else {
+      handleFeedbackJob(job);
+    }
+    if (isTerminalStatus(job.status)) {
+      stopJobPolling(kind);
     }
   } catch (error) {
-    clearPoller();
+    stopJobPolling(kind);
     if (error.status === 404) {
-      localStorage.removeItem(STORAGE_KEYS.vocabJobId);
+      localStorage.removeItem(JOB_STORAGE_KEYS[kind]);
+      state.activeJobIds[kind] = null;
+      clearJobSnapshot(kind);
+      return;
     }
     showBanner(resolveErrorMessage(error));
   }
 }
 
-async function pollFeedbackJob(jobId) {
-  clearPoller();
-  updateStatusMode("feedback");
-  updateStatusContext("课后反馈", `任务 ID: ${jobId.slice(0, 8)}`);
-  await refreshFeedbackJob(jobId);
-  state.pollTimer = window.setInterval(() => refreshFeedbackJob(jobId), 1800);
-}
-
-async function refreshFeedbackJob(jobId) {
-  try {
-    const job = await requestJSON(`/v1/feedback/jobs/${jobId}`);
-    state.activeTaskKind = "feedback";
-    state.activeTaskId = jobId;
-    renderFeedbackJob(job);
-    if (job.status === "completed" || job.status === "failed") {
-      clearPoller();
-    }
-  } catch (error) {
-    clearPoller();
-    if (error.status === 404) {
-      localStorage.removeItem(STORAGE_KEYS.feedbackJobId);
-    }
-    showBanner(resolveErrorMessage(error));
-  }
-}
-
-function renderVocabJob(job) {
+function handleVocabJob(job) {
   const message = job.status === "failed"
     ? job.error_message || "处理失败，请检查输入文件。"
     : job.status === "completed"
       ? "处理完成，系统已准备下载文件。"
       : "系统正在处理教材，请稍候。";
-  setProgress({
-    stageLabel: job.stage_label,
-    percent: job.progress_percent,
-    title: "教材题词",
-    message,
-    stageCode: job.stage_code,
-  });
 
-  const resultCard = document.getElementById("result-card");
+  setJobSnapshot("vocab", createJobSnapshot("vocab", job, message));
+
   const redownloadButton = document.getElementById("redownload-button");
-  const skipReasons = document.getElementById("skip-reasons");
-  const rowsWritten = document.getElementById("rows-written");
-  const rowsSkipped = document.getElementById("rows-skipped");
-
   if (job.status === "completed") {
-    rowsWritten.textContent = String(job.rows_written || 0);
-    rowsSkipped.textContent = String(Object.keys(job.skipped_words || {}).length);
-    resultCard.classList.remove("hidden");
-    renderSkipReasons(job.skipped_words || {});
-    state.currentDownloadUrl = job.download_url;
-    redownloadButton.classList.toggle("hidden", !job.download_url);
-    redownloadButton.onclick = () => triggerDownload(job.download_url);
+    state.currentDownloadUrl = job.download_url || null;
+    redownloadButton.onclick = job.download_url ? () => triggerDownload(job.download_url) : null;
     const alreadyDownloaded = localStorage.getItem(STORAGE_KEYS.downloadedJobId);
     if (job.download_url && alreadyDownloaded !== job.job_id) {
       triggerDownload(job.download_url);
       localStorage.setItem(STORAGE_KEYS.downloadedJobId, job.job_id);
       showToast("词表已生成，开始自动下载。");
     }
-  } else if (job.status === "failed") {
-    resultCard.classList.remove("hidden");
-    redownloadButton.classList.add("hidden");
-    rowsWritten.textContent = "0";
-    rowsSkipped.textContent = String(Object.keys(job.skipped_words || {}).length);
-    skipReasons.innerHTML = `<div class="skip-reason-item"><strong>失败原因：</strong>${escapeHTML(job.error_message || "处理失败")}</div>`;
-  } else {
-    resultCard.classList.add("hidden");
-    redownloadButton.classList.add("hidden");
+  } else if (job.status !== "failed") {
+    state.currentDownloadUrl = null;
+    redownloadButton.onclick = null;
   }
 }
 
-function renderFeedbackJob(job) {
+function handleFeedbackJob(job) {
+  const previousSnapshot = state.jobSnapshots.feedback;
   const message = job.status === "failed"
     ? job.error_message || "生成失败，请检查课堂内容。"
     : job.status === "completed"
       ? "反馈草稿已生成，可在左侧继续编辑。"
       : "系统正在整理源材料并生成反馈草稿。";
 
-  setProgress({
-    stageLabel: job.stage_label,
-    percent: job.progress_percent,
-    title: "课后反馈",
-    message,
-    stageCode: job.stage_code,
-  });
+  setJobSnapshot("feedback", createJobSnapshot("feedback", job, message));
 
   if (job.status === "completed") {
     localStorage.setItem(STORAGE_KEYS.feedbackJobId, job.job_id);
     renderFeedbackSections(job.draft_sections || []);
     document.getElementById("feedback-editor").classList.remove("hidden");
-    showToast("课后反馈草稿已准备好。");
+    if (!previousSnapshot || previousSnapshot.jobId !== job.job_id || previousSnapshot.status !== "completed") {
+      showToast("课后反馈草稿已准备好。");
+    }
+  } else if (job.status === "failed") {
+    document.getElementById("feedback-editor").classList.add("hidden");
+  }
+}
+
+function createJobSnapshot(kind, job, message) {
+  return {
+    kind,
+    status: job.status,
+    stageCode: job.stage_code || null,
+    stageLabel: job.stage_label || VIEW_CONFIG[kind].idleStageLabel,
+    progressPercent: Number(job.progress_percent) || 0,
+    message,
+    jobId: job.job_id || null,
+    raw: job,
+  };
+}
+
+function setJobSnapshot(kind, snapshot) {
+  state.jobSnapshots[kind] = {
+    kind,
+    status: snapshot.status,
+    stageCode: snapshot.stageCode ?? null,
+    stageLabel: snapshot.stageLabel || VIEW_CONFIG[kind].idleStageLabel,
+    progressPercent: Number(snapshot.progressPercent) || 0,
+    message: snapshot.message || VIEW_CONFIG[kind].idleMessage,
+    jobId: snapshot.jobId || null,
+    raw: snapshot.raw || null,
+  };
+  renderStatusCard();
+}
+
+function clearJobSnapshot(kind) {
+  state.jobSnapshots[kind] = null;
+  if (kind === "feedback") {
+    document.getElementById("feedback-editor").classList.add("hidden");
+  }
+  if (kind === "vocab") {
+    state.currentDownloadUrl = null;
+  }
+  renderStatusCard();
+}
+
+function activateTab(kind) {
+  state.currentTab = kind;
+  const shell = document.querySelector(".workspace-shell");
+  if (shell) {
+    shell.dataset.currentTab = kind;
+  }
+  syncTemplateNoteVisibility(kind);
+
+  document.querySelectorAll("[data-tab-target]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.tabTarget === VIEW_CONFIG[kind].panelId);
+  });
+
+  document.querySelectorAll("[data-panel]").forEach((panel) => {
+    panel.classList.toggle("active", panel.id === VIEW_CONFIG[kind].panelId);
+  });
+
+  renderStatusCard();
+}
+
+function syncTemplateNoteVisibility(kind) {
+  const templateNote = document.getElementById("template-note");
+  if (!templateNote) {
+    return;
+  }
+  const show = kind === "vocab";
+  templateNote.hidden = !show;
+  templateNote.setAttribute("aria-hidden", String(!show));
+  templateNote.style.display = show ? "" : "none";
+}
+
+function renderStatusCard() {
+  const viewKind = state.currentTab;
+  const config = VIEW_CONFIG[viewKind];
+  const snapshot = viewKind === "settings" ? null : state.jobSnapshots[viewKind];
+  const statusCard = document.querySelector(".status-card");
+  const progressWrap = document.getElementById("progress-wrap");
+  const stageList = document.getElementById("status-stage-list");
+  const progressLabel = document.getElementById("progress-label");
+  const progressPercent = document.getElementById("progress-percent");
+  const progressBar = document.getElementById("progress-bar");
+  const statusTitle = document.getElementById("status-title");
+  const statusContext = document.getElementById("status-context");
+  const statusMessage = document.getElementById("status-message");
+
+  statusCard.dataset.viewKind = viewKind;
+  statusTitle.textContent = config.title;
+  statusContext.textContent = getStatusContext(viewKind, snapshot);
+  statusMessage.textContent = snapshot?.message || config.idleMessage;
+
+  renderSecondaryTaskHint(viewKind);
+  renderStageList(viewKind);
+
+  const percent = Math.max(0, Math.min(100, snapshot?.progressPercent ?? 0));
+  progressLabel.textContent = snapshot?.stageLabel || config.idleStageLabel;
+  progressPercent.textContent = `${percent}%`;
+  progressBar.style.width = `${percent}%`;
+  highlightStage(snapshot?.stageCode || null);
+
+  const hasStages = stageSets[viewKind].length > 0;
+  progressWrap.classList.toggle("hidden", !hasStages);
+  stageList.classList.toggle("hidden", !hasStages);
+
+  renderResultCard(viewKind, snapshot);
+}
+
+function renderSecondaryTaskHint(viewKind) {
+  const element = document.getElementById("status-secondary-task");
+  const snapshot = getBackgroundTaskSnapshot(viewKind);
+  if (!snapshot) {
+    element.textContent = "";
+    element.classList.add("hidden");
+    return;
   }
 
-  if (job.status === "failed") {
-    document.getElementById("feedback-editor").classList.add("hidden");
+  element.textContent = `后台进行中 · ${VIEW_CONFIG[snapshot.kind].title} · ${snapshot.stageLabel} · ${snapshot.progressPercent}%`;
+  element.classList.remove("hidden");
+}
+
+function getBackgroundTaskSnapshot(viewKind) {
+  const processingKinds = ["vocab", "feedback"].filter((kind) => {
+    if (kind === viewKind) {
+      return false;
+    }
+    return state.jobSnapshots[kind]?.status === "processing";
+  });
+
+  if (!processingKinds.length) {
+    return null;
+  }
+
+  const preferredKind = localStorage.getItem(STORAGE_KEYS.lastTaskKind);
+  if (preferredKind && processingKinds.includes(preferredKind)) {
+    return state.jobSnapshots[preferredKind];
+  }
+
+  return state.jobSnapshots[processingKinds[0]];
+}
+
+function renderResultCard(viewKind, snapshot) {
+  const resultCard = document.getElementById("result-card");
+  const redownloadButton = document.getElementById("redownload-button");
+  const skipReasons = document.getElementById("skip-reasons");
+  const rowsWritten = document.getElementById("rows-written");
+  const rowsSkipped = document.getElementById("rows-skipped");
+
+  if (viewKind !== "vocab" || !snapshot?.raw || (snapshot.status !== "completed" && snapshot.status !== "failed")) {
+    resultCard.classList.add("hidden");
+    redownloadButton.classList.add("hidden");
+    return;
+  }
+
+  const job = snapshot.raw;
+  resultCard.classList.remove("hidden");
+
+  if (snapshot.status === "completed") {
+    rowsWritten.textContent = String(job.rows_written || 0);
+    rowsSkipped.textContent = String(Object.keys(job.skipped_words || {}).length);
+    renderSkipReasons(job.skipped_words || {});
+    redownloadButton.classList.toggle("hidden", !job.download_url);
+    redownloadButton.onclick = job.download_url ? () => triggerDownload(job.download_url) : null;
+    return;
+  }
+
+  rowsWritten.textContent = "0";
+  rowsSkipped.textContent = String(Object.keys(job.skipped_words || {}).length);
+  redownloadButton.classList.add("hidden");
+  redownloadButton.onclick = null;
+  skipReasons.innerHTML = `<div class="skip-reason-item"><strong>失败原因：</strong>${escapeHTML(job.error_message || "处理失败")}</div>`;
+}
+
+function getStatusContext(viewKind, snapshot) {
+  if (snapshot?.jobId) {
+    return `任务 ID: ${snapshot.jobId.slice(0, 8)}`;
+  }
+  return state.viewContextOverrides[viewKind] || VIEW_CONFIG[viewKind].defaultContext;
+}
+
+function setViewContextOverride(kind, context) {
+  state.viewContextOverrides[kind] = context;
+  if (state.currentTab === kind) {
+    renderStatusCard();
   }
 }
 
@@ -475,9 +692,7 @@ function renderFeedbackSections(sections) {
 }
 
 async function regenerateFeedbackSection(sectionKey, button) {
-  const jobId = state.activeTaskKind === "feedback"
-    ? state.activeTaskId
-    : localStorage.getItem(STORAGE_KEYS.feedbackJobId);
+  const jobId = getJobIdForKind("feedback");
   if (!jobId || !sectionKey) {
     showBanner("未找到可重生成的反馈任务，请先重新生成反馈草稿。");
     return;
@@ -541,39 +756,19 @@ function renderSkipReasons(skippedWords) {
 }
 
 function renderStageList(kind) {
-  const list = document.getElementById("vocab-stage-list");
+  const list = document.getElementById("status-stage-list");
   list.innerHTML = stageSets[kind]
     .map(([code, label]) => `<li data-stage="${code}">${label}</li>`)
     .join("");
 }
 
-function updateStatusMode(kind) {
-  if (state.activeTaskKind !== kind) {
-    renderStageList(kind);
-  }
-  state.activeTaskKind = kind;
-}
-
-function updateStatusContext(title, context) {
-  document.getElementById("status-title").textContent = title;
-  document.getElementById("status-context").textContent = context;
-}
-
-function setProgress({ stageLabel, percent, title, message, stageCode }) {
-  document.getElementById("status-title").textContent = title;
-  document.getElementById("progress-label").textContent = stageLabel;
-  document.getElementById("progress-percent").textContent = `${percent}%`;
-  document.getElementById("progress-bar").style.width = `${Math.max(0, Math.min(100, percent))}%`;
-  document.getElementById("status-message").textContent = message;
-  highlightStage(stageCode);
-}
-
 function highlightStage(stageCode) {
-  const items = Array.from(document.querySelectorAll("#vocab-stage-list li"));
+  const items = Array.from(document.querySelectorAll("#status-stage-list li"));
   if (!stageCode || !items.some((item) => item.dataset.stage === stageCode)) {
     items.forEach((item) => item.classList.remove("active", "done"));
     return;
   }
+
   let activeReached = false;
   items.forEach((item) => {
     item.classList.remove("active", "done");
@@ -591,7 +786,20 @@ function highlightStage(stageCode) {
 function resetResultCard() {
   document.getElementById("result-card").classList.add("hidden");
   document.getElementById("redownload-button").classList.add("hidden");
+  document.getElementById("redownload-button").onclick = null;
   document.getElementById("skip-reasons").innerHTML = "";
+}
+
+function getJobIdForKind(kind) {
+  return state.jobSnapshots[kind]?.jobId || state.activeJobIds[kind] || localStorage.getItem(JOB_STORAGE_KEYS[kind]);
+}
+
+function getKindFromPanelId(panelId) {
+  return Object.keys(VIEW_CONFIG).find((kind) => VIEW_CONFIG[kind].panelId === panelId) || null;
+}
+
+function isTerminalStatus(status) {
+  return status === "completed" || status === "failed";
 }
 
 async function uploadRecordedWords() {
@@ -694,13 +902,6 @@ async function requestJSON(url, options = {}) {
 
 function resolveErrorMessage(error) {
   return error?.message || "发生未知错误。";
-}
-
-function clearPoller() {
-  if (state.pollTimer) {
-    window.clearInterval(state.pollTimer);
-    state.pollTimer = null;
-  }
 }
 
 function showBanner(message) {

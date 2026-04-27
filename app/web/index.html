@@ -56,14 +56,14 @@
       </symbol>
     </svg>
 
-    <div class="workspace-shell">
+    <div class="workspace-shell" data-current-tab="vocab">
       <header class="topbar">
         <div class="brand-block">
           <p class="eyebrow">Lesson Operations Desk</p>
           <h1>教材题词与课后反馈工作台</h1>
           <p class="lead">把教材上传、补词、进度跟踪、课后总结和系统配置收进同一个清晰工作台。</p>
         </div>
-        <div class="template-note">
+        <div id="template-note" class="template-note">
           <span class="template-label">固定模板</span>
           <strong>template/test 6单词表模板.xlsx</strong>
           <p>题词结果将自动回填到该模板并生成下载文件。</p>
@@ -343,16 +343,18 @@
         </main>
 
         <aside class="status-column">
-          <section class="status-card">
-            <div class="status-head">
-              <div>
-                <p class="section-kicker">当前任务</p>
-                <h2 id="status-title">尚未开始</h2>
-              </div>
-              <span id="status-context" class="status-context">请选择左侧模块开始操作</span>
+          <section class="status-card" data-view-kind="vocab">
+            <div class="status-eyebrow-row">
+              <p class="section-kicker">当前任务</p>
+              <div id="status-secondary-task" class="status-secondary-task hidden"></div>
             </div>
 
-            <div class="progress-wrap">
+            <div class="status-head">
+              <h2 id="status-title">教材题词</h2>
+              <p id="status-context" class="status-context">请提交教材任务或查看当前进度</p>
+            </div>
+
+            <div id="progress-wrap" class="progress-wrap">
               <div class="progress-meta">
                 <strong id="progress-label">等待开始</strong>
                 <span id="progress-percent">0%</span>
@@ -362,7 +364,7 @@
               </div>
             </div>
 
-            <ul id="vocab-stage-list" class="stage-list">
+            <ul id="status-stage-list" class="stage-list">
               <li data-stage="upload_validation">上传校验</li>
               <li data-stage="document_parsing">教材解析</li>
               <li data-stage="merge_candidates">音频/补词合并</li>
