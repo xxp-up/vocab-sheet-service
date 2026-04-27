@@ -6,6 +6,8 @@ const STORAGE_KEYS = {
 };
 
 const POLL_INTERVAL_MS = 1800;
+const DEFAULT_PAGE_SIZE = 10;
+const PAGE_SIZE_OPTIONS = [10, 20, 50];
 const SETTINGS_SAVE_BLOCKED_MESSAGE = "后台任务正在运行，请等待后台任务运行完成后再进行系统配置修改保存。";
 
 const VIEW_CONFIG = {
@@ -81,6 +83,11 @@ const state = {
     settings: null,
   },
   currentDownloadUrl: null,
+  activeResultTab: "written",
+  resultPagination: {
+    written: { page: 1, pageSize: DEFAULT_PAGE_SIZE },
+    exception: { page: 1, pageSize: DEFAULT_PAGE_SIZE },
+  },
   feedbackOriginals: new Map(),
   isRecording: false,
   mediaRecorder: null,
@@ -90,20 +97,20 @@ const state = {
 document.addEventListener("DOMContentLoaded", () => {
   bindTabs();
   bindFileInputs();
+  bindResultInspector();
   bindVocabForm();
   bindFeedbackForm();
   bindSettingsForm();
   bindManualMic();
   activateTab(resolveInitialTab());
   hydrateDefaults();
-  loadSettings();
+  void loadSettings();
   syncManualWordsChips();
   restoreCurrentTask();
 });
 
 function bindTabs() {
-  const buttons = document.querySelectorAll("[data-tab-target]");
-  buttons.forEach((button) => {
+  document.querySelectorAll("[data-tab-target]").forEach((button) => {
     button.addEventListener("click", () => {
       const kind = getKindFromPanelId(button.dataset.tabTarget);
       if (kind) {
@@ -132,6 +139,54 @@ function bindFileInputs() {
   document.getElementById("words-text")?.addEventListener("input", syncManualWordsChips);
 }
 
+function bindResultInspector() {
+  document.querySelectorAll("[data-result-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setResultTab(button.dataset.resultTab || "written");
+      renderResultInspector(state.jobSnapshots.vocab);
+    });
+  });
+
+  document.querySelectorAll("[data-result-tab-trigger]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openResultInspector(button.dataset.resultTabTrigger || "written");
+    });
+  });
+
+  const inspector = document.getElementById("result-inspector");
+  inspector?.addEventListener("click", (event) => {
+    const pageButton = event.target.closest("[data-page-action]");
+    const pageNumberButton = event.target.closest("[data-page-number]");
+    if (pageButton && !pageButton.disabled) {
+      const tab = normalizeResultTab(pageButton.dataset.pageTab);
+      const direction = pageButton.dataset.pageAction === "prev" ? -1 : 1;
+      const pagination = state.resultPagination[tab];
+      pagination.page = Math.max(1, pagination.page + direction);
+      renderResultInspector(state.jobSnapshots.vocab);
+      return;
+    }
+
+    if (pageNumberButton && !pageNumberButton.disabled) {
+      const tab = normalizeResultTab(pageNumberButton.dataset.pageTab);
+      state.resultPagination[tab].page = Number(pageNumberButton.dataset.pageNumber) || 1;
+      renderResultInspector(state.jobSnapshots.vocab);
+    }
+  });
+
+  inspector?.addEventListener("change", (event) => {
+    const select = event.target.closest("[data-page-size-select]");
+    if (!select) {
+      return;
+    }
+    const tab = normalizeResultTab(select.dataset.pageSizeSelect);
+    const nextSize = Number(select.value) || DEFAULT_PAGE_SIZE;
+    state.resultPagination[tab].pageSize = nextSize;
+    state.resultPagination[tab].page = 1;
+    renderResultInspector(state.jobSnapshots.vocab);
+  });
+
+}
+
 function bindVocabForm() {
   const form = document.getElementById("vocab-form");
   if (!form) {
@@ -140,7 +195,7 @@ function bindVocabForm() {
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const teachingFile = document.getElementById("teaching-file").files?.[0];
+    const teachingFile = document.getElementById("teaching-file")?.files?.[0];
     if (!teachingFile) {
       showBanner("请先选择教材文件。");
       return;
@@ -158,6 +213,7 @@ function bindVocabForm() {
       jobId: null,
       raw: null,
     });
+    resetResultInspectorState();
     resetResultCard();
 
     try {
@@ -187,8 +243,8 @@ function bindFeedbackForm() {
 
   form?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const transcript = document.getElementById("feedback-transcript").value.trim();
-    const audioFile = document.getElementById("feedback-audio-file").files?.[0];
+    const transcript = document.getElementById("feedback-transcript")?.value.trim();
+    const audioFile = document.getElementById("feedback-audio-file")?.files?.[0];
     if (!transcript && !audioFile) {
       showBanner("请提供课堂音频或逐字稿文本。");
       return;
@@ -197,7 +253,7 @@ function bindFeedbackForm() {
     const formData = new FormData(form);
     activateTab("feedback");
     localStorage.setItem(STORAGE_KEYS.lastTaskKind, "feedback");
-    document.getElementById("feedback-editor").classList.add("hidden");
+    document.getElementById("feedback-editor")?.classList.add("hidden");
     setJobSnapshot("feedback", {
       status: "processing",
       stageCode: null,
@@ -252,6 +308,7 @@ function bindSettingsForm() {
       showBanner(SETTINGS_SAVE_BLOCKED_MESSAGE);
       return;
     }
+
     try {
       const payload = collectSettingsPayload();
       const response = await requestJSON("/v1/settings", {
@@ -317,7 +374,7 @@ function bindManualMic() {
       state.isRecording = true;
       updateMicButton();
       showToast("正在录音，再次点击即可停止并识别。");
-    } catch (error) {
+    } catch (_) {
       showBanner("无法启用麦克风，请检查浏览器权限。");
     }
   });
@@ -511,10 +568,11 @@ function setJobSnapshot(kind, snapshot) {
 function clearJobSnapshot(kind) {
   state.jobSnapshots[kind] = null;
   if (kind === "feedback") {
-    document.getElementById("feedback-editor").classList.add("hidden");
+    document.getElementById("feedback-editor")?.classList.add("hidden");
   }
   if (kind === "vocab") {
     state.currentDownloadUrl = null;
+    resetResultCard();
   }
   renderStatusCard();
 }
@@ -525,7 +583,6 @@ function activateTab(kind) {
   if (shell) {
     shell.dataset.currentTab = kind;
   }
-  syncTemplateNoteVisibility(kind);
 
   document.querySelectorAll("[data-tab-target]").forEach((button) => {
     button.classList.toggle("active", button.dataset.tabTarget === VIEW_CONFIG[kind].panelId);
@@ -538,15 +595,37 @@ function activateTab(kind) {
   renderStatusCard();
 }
 
-function syncTemplateNoteVisibility(kind) {
-  const templateNote = document.getElementById("template-note");
-  if (!templateNote) {
+function openResultInspector(tab) {
+  setResultTab(tab);
+  renderResultInspector(state.jobSnapshots.vocab);
+  const inspector = document.getElementById("result-inspector");
+  if (!inspector || inspector.classList.contains("hidden")) {
     return;
   }
-  const show = kind === "vocab";
-  templateNote.hidden = !show;
-  templateNote.setAttribute("aria-hidden", String(!show));
-  templateNote.style.display = show ? "" : "none";
+  inspector.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function setResultTab(tab) {
+  state.activeResultTab = normalizeResultTab(tab);
+  syncResultTabButtons();
+}
+
+function normalizeResultTab(tab) {
+  return tab === "exception" ? "exception" : "written";
+}
+
+function syncResultTabButtons() {
+  const activeTab = state.activeResultTab;
+  document.querySelectorAll("[data-result-tab]").forEach((button) => {
+    const isActive = button.dataset.resultTab === activeTab;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-selected", String(isActive));
+  });
+  document.querySelectorAll("[data-result-panel]").forEach((panel) => {
+    const isActive = panel.dataset.resultPanel === activeTab;
+    panel.classList.toggle("hidden", !isActive);
+    panel.classList.toggle("active", isActive);
+  });
 }
 
 function renderStatusCard() {
@@ -583,6 +662,7 @@ function renderStatusCard() {
   stageList.classList.toggle("hidden", !hasStages);
 
   renderResultCard(viewKind, snapshot);
+  renderResultInspector(state.jobSnapshots.vocab);
 }
 
 function renderSecondaryTaskHint(viewKind) {
@@ -621,9 +701,9 @@ function getBackgroundTaskSnapshot(viewKind) {
 function renderResultCard(viewKind, snapshot) {
   const resultCard = document.getElementById("result-card");
   const redownloadButton = document.getElementById("redownload-button");
-  const skipReasons = document.getElementById("skip-reasons");
+  const previewContainer = document.getElementById("skip-reasons");
   const rowsWritten = document.getElementById("rows-written");
-  const rowsSkipped = document.getElementById("rows-skipped");
+  const exceptionCount = document.getElementById("rows-skipped");
 
   if (viewKind !== "vocab" || !snapshot?.raw || (snapshot.status !== "completed" && snapshot.status !== "failed")) {
     resultCard.classList.add("hidden");
@@ -632,22 +712,311 @@ function renderResultCard(viewKind, snapshot) {
   }
 
   const job = snapshot.raw;
+  const writtenRows = getWrittenRows(job);
+  const exceptionItems = getExceptionItems(job);
   resultCard.classList.remove("hidden");
 
   if (snapshot.status === "completed") {
-    rowsWritten.textContent = String(job.rows_written || 0);
-    rowsSkipped.textContent = String(Object.keys(job.skipped_words || {}).length);
-    renderSkipReasons(job.skipped_words || {});
+    rowsWritten.textContent = String(job.rows_written || writtenRows.length);
+    exceptionCount.textContent = String(exceptionItems.length);
+    renderExceptionPreview(exceptionItems);
     redownloadButton.classList.toggle("hidden", !job.download_url);
     redownloadButton.onclick = job.download_url ? () => triggerDownload(job.download_url) : null;
     return;
   }
 
   rowsWritten.textContent = "0";
-  rowsSkipped.textContent = String(Object.keys(job.skipped_words || {}).length);
+  exceptionCount.textContent = String(exceptionItems.length);
   redownloadButton.classList.add("hidden");
   redownloadButton.onclick = null;
-  skipReasons.innerHTML = `<div class="skip-reason-item"><strong>失败原因：</strong>${escapeHTML(job.error_message || "处理失败")}</div>`;
+  if (exceptionItems.length) {
+    renderExceptionPreview(exceptionItems);
+    return;
+  }
+  previewContainer.innerHTML = `<div class="skip-reason-item"><strong>失败原因：</strong>${escapeHTML(job.error_message || "处理失败")}</div>`;
+}
+
+function renderExceptionPreview(exceptionItems) {
+  const container = document.getElementById("skip-reasons");
+  const entries = exceptionItems.slice(0, 3);
+  if (!entries.length) {
+    container.innerHTML = '<div class="skip-reason-item">本次没有处理异常。</div>';
+    return;
+  }
+  container.innerHTML = entries
+    .map((item) => `<div class="skip-reason-item"><strong>${escapeHTML(item.word || "")}</strong>：${escapeHTML(item.reason || "")}</div>`)
+    .join("");
+}
+
+function renderResultInspector(snapshot) {
+  const inspector = document.getElementById("result-inspector");
+  const title = document.getElementById("result-inspector-title");
+  const summary = document.getElementById("result-inspector-summary");
+  const outputFilename = document.getElementById("result-output-filename");
+  const writtenCount = document.getElementById("result-written-count");
+  const exceptionCount = document.getElementById("result-skipped-count");
+  const writtenPanel = document.getElementById("result-panel-written");
+  const exceptionPanel = document.getElementById("result-panel-exception");
+
+  if (!inspector || !title || !summary || !outputFilename || !writtenCount || !exceptionCount || !writtenPanel || !exceptionPanel) {
+    return;
+  }
+
+  if (!snapshot?.raw || (snapshot.status !== "completed" && snapshot.status !== "failed")) {
+    inspector.classList.add("hidden");
+    return;
+  }
+
+  const job = snapshot.raw;
+  const writtenRows = getWrittenRows(job);
+  const exceptionItems = getExceptionItems(job);
+  inspector.classList.remove("hidden");
+  title.textContent = snapshot.status === "completed" ? "词表明细" : "失败结果检查";
+  summary.textContent = snapshot.status === "completed"
+    ? `已写入 ${writtenRows.length} 个词条，出现 ${exceptionItems.length} 条处理异常。`
+    : job.error_message || "处理失败，请查看处理异常或失败原因。";
+  outputFilename.textContent = job.output_filename || "-";
+  writtenCount.textContent = String(job.rows_written || writtenRows.length);
+  exceptionCount.textContent = String(exceptionItems.length);
+  writtenPanel.innerHTML = renderWrittenRowsTable(writtenRows);
+  exceptionPanel.innerHTML = renderExceptionItemsTable(exceptionItems, snapshot.status === "failed" ? job.error_message : "");
+  syncResultTabButtons();
+}
+
+function renderWrittenRowsTable(rows) {
+  if (!rows.length) {
+    return '<div class="result-empty">当前没有可展示的写入明细。</div>';
+  }
+
+  const pagination = getPaginationState("written", rows.length);
+  const pageRows = rows.slice(pagination.startIndex, pagination.endIndex);
+  const body = pageRows
+    .map(
+      (row, index) => `
+        <tr>
+          <td>${pagination.startIndex + index + 1}</td>
+          <td>${escapeHTML(row.word || "")}</td>
+          <td>${escapeHTML(row.ipa || "")}</td>
+          <td>${escapeHTML(row.pos_abbr || "")}</td>
+          <td>${escapeHTML(row.zh_meaning || "")}</td>
+          <td>${escapeHTML(row.example || "")}</td>
+          <td>${row.example_page == null ? "" : escapeHTML(String(row.example_page))}</td>
+          <td>${renderSourceBadges(row.sources || [])}</td>
+        </tr>`,
+    )
+    .join("");
+
+  return `
+    <div class="result-table-wrap">
+      <table class="result-table">
+        <thead>
+          <tr>
+            <th>序号</th>
+            <th>单词</th>
+            <th>音标</th>
+            <th>词性</th>
+            <th>中文意思</th>
+            <th>例句</th>
+            <th>页数</th>
+            <th>来源</th>
+          </tr>
+        </thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>
+    ${renderPagination("written", pagination)}`;
+}
+
+function renderExceptionItemsTable(items, errorMessage = "") {
+  const errorBlock = errorMessage ? `<div class="result-empty">${escapeHTML(errorMessage)}</div>` : "";
+  if (!items.length) {
+    return errorBlock || '<div class="result-empty">当前没有处理异常。</div>';
+  }
+
+  const pagination = getPaginationState("exception", items.length);
+  const pageItems = items.slice(pagination.startIndex, pagination.endIndex);
+  const body = pageItems
+    .map(
+      (item, index) => `
+        <tr>
+          <td>${pagination.startIndex + index + 1}</td>
+          <td>${escapeHTML(item.word || "")}</td>
+          <td>${escapeHTML(item.reason || "")}</td>
+          <td>${renderSourceBadges(item.sources || [])}</td>
+        </tr>`,
+    )
+    .join("");
+
+  return `
+    ${errorBlock}
+    <div class="result-table-wrap">
+      <table class="result-table">
+        <thead>
+          <tr>
+            <th>序号</th>
+            <th>单词</th>
+            <th>异常原因</th>
+            <th>来源</th>
+          </tr>
+        </thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>
+    ${renderPagination("exception", pagination)}`;
+}
+
+function getPaginationState(tab, totalItems) {
+  const pagination = state.resultPagination[tab];
+  const totalPages = Math.max(1, Math.ceil(totalItems / pagination.pageSize));
+  pagination.page = Math.min(Math.max(1, pagination.page), totalPages);
+  const startIndex = (pagination.page - 1) * pagination.pageSize;
+  const endIndex = Math.min(startIndex + pagination.pageSize, totalItems);
+  return {
+    page: pagination.page,
+    pageSize: pagination.pageSize,
+    totalPages,
+    totalItems,
+    startIndex,
+    endIndex,
+  };
+}
+
+function renderPagination(tab, pagination) {
+  const pageSizeOptions = PAGE_SIZE_OPTIONS
+    .map((size) => `<option value="${size}" ${size === pagination.pageSize ? "selected" : ""}>${size}</option>`)
+    .join("");
+  const pageButtons = buildPageButtons(pagination)
+    .map((item) => {
+      if (item.type === "ellipsis") {
+        return '<span class="result-page-ellipsis" aria-hidden="true">&hellip;</span>';
+      }
+      return `
+        <button
+          class="result-page-number ${item.page === pagination.page ? "is-active" : ""}"
+          type="button"
+          data-page-number="${item.page}"
+          data-page-tab="${tab}"
+          aria-label="跳转到第 ${item.page} 页"
+          aria-current="${item.page === pagination.page ? "page" : "false"}"
+        >
+          ${item.page}
+        </button>`;
+    })
+    .join("");
+
+  return `
+    <div class="result-pagination">
+      <div class="result-pagination-summary">
+        <span>共有 ${pagination.totalItems} 条</span>
+        <label class="result-page-size-inline">
+          <span>每页</span>
+          <select class="result-page-size-select" data-page-size-select="${tab}">
+            ${pageSizeOptions}
+          </select>
+          <span>条</span>
+        </label>
+      </div>
+      <div class="result-pagination-nav">
+        <button
+          class="result-page-button is-icon"
+          type="button"
+          aria-label="上一页"
+          data-page-action="prev"
+          data-page-tab="${tab}"
+          ${pagination.page <= 1 ? "disabled" : ""}
+        >
+          &lsaquo;
+        </button>
+        ${pageButtons}
+        <button
+          class="result-page-button is-icon"
+          type="button"
+          aria-label="下一页"
+          data-page-action="next"
+          data-page-tab="${tab}"
+          ${pagination.page >= pagination.totalPages ? "disabled" : ""}
+        >
+          &rsaquo;
+        </button>
+      </div>
+    </div>`;
+}
+
+function buildPageButtons(pagination) {
+  const totalPages = pagination.totalPages;
+  const currentPage = pagination.page;
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => ({ type: "page", page: index + 1 }));
+  }
+
+  const pages = new Set([1, totalPages, currentPage - 1, currentPage, currentPage + 1]);
+  if (currentPage <= 3) {
+    pages.add(2);
+    pages.add(3);
+    pages.add(4);
+  }
+  if (currentPage >= totalPages - 2) {
+    pages.add(totalPages - 1);
+    pages.add(totalPages - 2);
+    pages.add(totalPages - 3);
+  }
+
+  const sortedPages = Array.from(pages)
+    .filter((page) => page >= 1 && page <= totalPages)
+    .sort((a, b) => a - b);
+
+  const result = [];
+  for (let index = 0; index < sortedPages.length; index += 1) {
+    const page = sortedPages[index];
+    const previous = sortedPages[index - 1];
+    if (previous && page - previous > 1) {
+      result.push({ type: "ellipsis" });
+    }
+    result.push({ type: "page", page });
+  }
+  return result;
+}
+
+function renderSourceBadges(sources) {
+  const normalized = Array.from(new Set((sources || []).map(normalizeSourceLabel).filter(Boolean)));
+  if (!normalized.length) {
+    return '<span class="source-badge">教材</span>';
+  }
+  return `<div class="source-badges">${normalized.map((item) => `<span class="source-badge">${escapeHTML(item)}</span>`).join("")}</div>`;
+}
+
+function normalizeSourceLabel(source) {
+  if (!source) {
+    return "教材";
+  }
+  if (source === "manual") {
+    return "手工补词";
+  }
+  if (source === "audio") {
+    return "音频补词";
+  }
+  return "教材";
+}
+
+function getWrittenRows(job) {
+  return Array.isArray(job?.written_rows) ? job.written_rows : [];
+}
+
+function getExceptionItems(job) {
+  if (Array.isArray(job?.skipped_items)) {
+    return job.skipped_items;
+  }
+  return Object.entries(job?.skipped_words || {}).map(([word, reason]) => ({
+    word,
+    reason,
+    sources: [],
+  }));
+}
+
+function resetResultInspectorState() {
+  state.activeResultTab = "written";
+  state.resultPagination.written = { page: 1, pageSize: DEFAULT_PAGE_SIZE };
+  state.resultPagination.exception = { page: 1, pageSize: DEFAULT_PAGE_SIZE };
 }
 
 function getStatusContext(viewKind, snapshot) {
@@ -700,7 +1069,7 @@ function renderFeedbackSections(sections) {
 async function regenerateFeedbackSection(sectionKey, button) {
   const jobId = getJobIdForKind("feedback");
   if (!jobId || !sectionKey) {
-    showBanner("未找到可重生成的反馈任务，请先重新生成反馈草稿。");
+    showBanner("未找到可重新生成的反馈任务，请先重新生成反馈草稿。");
     return;
   }
 
@@ -727,7 +1096,7 @@ async function regenerateFeedbackSection(sectionKey, button) {
     });
     textarea.value = section.content || "";
     state.feedbackOriginals.set(section.key, section.content || "");
-    showToast("该模块已根据原始课堂内容重新生成。");
+    showToast("该模块已根据课堂内容重新生成。");
   } catch (error) {
     showBanner(resolveErrorMessage(error));
   } finally {
@@ -742,23 +1111,13 @@ async function regenerateFeedbackSection(sectionKey, button) {
 }
 
 function collectFeedbackSections() {
-  return Array.from(document.querySelectorAll("[data-feedback-section] textarea")).map((item) => ({
-    key: item.closest("[data-feedback-section-key]")?.dataset.feedbackSectionKey || "",
-    title: item.dataset.title || "",
-    content: item.value || "",
-  })).filter((item) => item.key);
-}
-
-function renderSkipReasons(skippedWords) {
-  const container = document.getElementById("skip-reasons");
-  const entries = Object.entries(skippedWords).slice(0, 3);
-  if (!entries.length) {
-    container.innerHTML = '<div class="skip-reason-item">没有需要提示的跳过项。</div>';
-    return;
-  }
-  container.innerHTML = entries
-    .map(([word, reason]) => `<div class="skip-reason-item"><strong>${escapeHTML(word)}</strong>：${escapeHTML(reason)}</div>`)
-    .join("");
+  return Array.from(document.querySelectorAll("[data-feedback-section] textarea"))
+    .map((item) => ({
+      key: item.closest("[data-feedback-section-key]")?.dataset.feedbackSectionKey || "",
+      title: item.dataset.title || "",
+      content: item.value || "",
+    }))
+    .filter((item) => item.key);
 }
 
 function renderStageList(kind) {
@@ -790,10 +1149,21 @@ function highlightStage(stageCode) {
 }
 
 function resetResultCard() {
-  document.getElementById("result-card").classList.add("hidden");
-  document.getElementById("redownload-button").classList.add("hidden");
-  document.getElementById("redownload-button").onclick = null;
-  document.getElementById("skip-reasons").innerHTML = "";
+  document.getElementById("result-card")?.classList.add("hidden");
+  document.getElementById("redownload-button")?.classList.add("hidden");
+  const redownloadButton = document.getElementById("redownload-button");
+  if (redownloadButton) {
+    redownloadButton.onclick = null;
+  }
+  const preview = document.getElementById("skip-reasons");
+  if (preview) {
+    preview.innerHTML = "";
+  }
+  const inspector = document.getElementById("result-inspector");
+  if (inspector) {
+    inspector.classList.add("hidden");
+  }
+  syncResultTabButtons();
 }
 
 function getJobIdForKind(kind) {
@@ -881,11 +1251,14 @@ function syncManualWordsChips() {
 }
 
 function parseWords(text) {
-  const parts = text
-    .split(/[\n,;，；]+/g)
-    .map((item) => item.trim())
-    .filter(Boolean);
-  return Array.from(new Set(parts));
+  return Array.from(
+    new Set(
+      text
+        .split(/[\n,;，；、]+/g)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
 }
 
 function triggerDownload(url) {
@@ -908,7 +1281,7 @@ async function copyText(text, successMessage) {
   try {
     await navigator.clipboard.writeText(text);
     showToast(successMessage);
-  } catch (error) {
+  } catch (_) {
     showBanner("复制失败，请检查浏览器剪贴板权限。");
   }
 }

@@ -52,7 +52,16 @@ class VocabRow:
 
 
 @dataclass(slots=True)
+class VocabSkippedItem:
+    word: str
+    reason: str
+    sources: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class PipelineResult:
     output_path: str
     rows_written: int
     skipped_words: dict[str, str] = field(default_factory=dict)
+    written_rows: list[VocabRow] = field(default_factory=list)
+    skipped_items: list[VocabSkippedItem] = field(default_factory=list)

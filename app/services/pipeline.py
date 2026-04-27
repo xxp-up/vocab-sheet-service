@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import Awaitable, Callable
 
-from app.models.domain import PipelineResult, VocabRow
+from app.models.domain import PipelineResult, VocabRow, VocabSkippedItem
 from app.services.audio import AudioService
 from app.services.document.service import DocumentService
 from app.services.exercise_restore import ExerciseRestoreService
@@ -26,6 +26,7 @@ class PipelineContentError(ValueError):
         *,
         identified_words: list[str] | None = None,
         skipped_words: dict[str, str] | None = None,
+        skipped_items: list[VocabSkippedItem] | None = None,
     ) -> None:
         super().__init__(message)
         detail: dict[str, object] = {"message": message}
@@ -33,6 +34,11 @@ class PipelineContentError(ValueError):
             detail["identified_words"] = identified_words
         if skipped_words:
             detail["skipped_words"] = skipped_words
+        if skipped_items:
+            detail["skipped_items"] = [
+                {"word": item.word, "reason": item.reason, "sources": list(item.sources)}
+                for item in skipped_items
+            ]
         self.detail = detail
 
 
@@ -100,24 +106,30 @@ class PipelineService:
 
         await _emit_progress(progress_callback, "sentence_matching", 85, "例句定位")
         rows: list[VocabRow] = []
-        skipped: dict[str, str] = {}
+        exception_words: dict[str, str] = {}
+        exception_items: list[VocabSkippedItem] = []
         for word in merged_words:
-            sentence = find_sentence_for_word(parsed_document.sentences, word)
-            if sentence is None:
-                skipped[word] = "未在教材正文中定位到例句"
-                continue
-
-            meaning = meanings.get(normalize_word(word))
-            if meaning is None and not is_multiword_term(word):
-                skipped[word] = "本地免费词典未找到该单词释义"
-                continue
-
             normalized_word = normalize_word(word)
-            source_names = [item.source for item in parsed_document.words if normalize_word(item.word) == normalized_word]
-            if normalized_word in audio_keys and "audio" not in source_names:
-                source_names.append("audio")
-            if normalized_word in manual_keys and "manual" not in source_names:
-                source_names.append("manual")
+            source_names = _resolve_sources(
+                parsed_document_words=parsed_document.words,
+                normalized_word=normalized_word,
+                manual_keys=manual_keys,
+                audio_keys=audio_keys,
+            )
+            sentence = find_sentence_for_word(parsed_document.sentences, word)
+            meaning = meanings.get(normalized_word)
+            issues: list[str] = []
+
+            if sentence is None:
+                issues.append("未在教材正文中定位到例句")
+
+            if meaning is None and not is_multiword_term(word):
+                issues.append("本地免费词典未找到该单词释义")
+
+            if issues:
+                reason = "；".join(issues)
+                exception_words[word] = reason
+                exception_items.append(VocabSkippedItem(word=word, reason=reason, sources=source_names))
 
             rows.append(
                 VocabRow(
@@ -125,31 +137,38 @@ class PipelineService:
                     ipa=meaning.ipa if meaning is not None else "",
                     pos_abbr=meaning.pos_abbr if meaning is not None else "",
                     zh_meaning=meaning.zh_meaning if meaning is not None else "",
-                    example=sentence.text,
-                    example_page=sentence.page_number,
+                    example=sentence.text if sentence is not None else "",
+                    example_page=sentence.page_number if sentence is not None else None,
                     sources=source_names,
                 )
             )
 
-        if not rows:
-            logger.warning("All candidate words were skipped for %s", teaching_path.name)
-            raise PipelineContentError(
-                "已识别到候选单词，但都未能写入模板。",
-                identified_words=merged_words,
-                skipped_words=skipped,
-            )
-
         logger.info(
-            "Workbook rows prepared: file=%s rows_written=%s skipped=%s",
+            "Workbook rows prepared: file=%s rows_written=%s exceptions=%s",
             teaching_path.name,
             len(rows),
-            len(skipped),
+            len(exception_items),
         )
         await _emit_progress(progress_callback, "workbook_writing", 95, "模板写入")
-        self.workbook_service.fill_template(rows, output_path)
+        self.workbook_service.fill_template(rows, output_path, workbook_title=teaching_path.stem)
         await _emit_progress(progress_callback, "download_ready", 100, "准备下载")
         logger.info("Workbook written: file=%s output=%s", teaching_path.name, output_path.name)
-        return PipelineResult(output_path=str(output_path), rows_written=len(rows), skipped_words=skipped)
+        return PipelineResult(
+            output_path=str(output_path),
+            rows_written=len(rows),
+            skipped_words=exception_words,
+            written_rows=list(rows),
+            skipped_items=exception_items,
+        )
+
+
+def _resolve_sources(parsed_document_words, normalized_word: str, manual_keys: set[str], audio_keys: set[str]) -> list[str]:
+    source_names = [item.source for item in parsed_document_words if normalize_word(item.word) == normalized_word]
+    if normalized_word in audio_keys and "audio" not in source_names:
+        source_names.append("audio")
+    if normalized_word in manual_keys and "manual" not in source_names:
+        source_names.append("manual")
+    return source_names
 
 
 async def _emit_progress(progress_callback: ProgressCallback | None, stage_code: str, progress_percent: int, stage_label: str) -> None:

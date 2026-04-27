@@ -63,7 +63,28 @@ def test_index_renders_workspace_sections() -> None:
     assert "教材题词与课后反馈工作台" in response.text
     assert "系统配置" in response.text
     assert "支持 PDF / DOCX" in response.text
-    assert "template/test 6单词表模板.xlsx" in response.text
+    assert "写入明细" in response.text
+
+
+def test_vocab_template_route_returns_template_info() -> None:
+    client = TestClient(app)
+
+    response = client.get("/v1/vocab/template")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["template_filename"] == "template/单词表模板.xlsx"
+    assert data["title_rule"] == "使用上传教材文件名（不含扩展名）作为第一行标题"
+    assert [item["key"] for item in data["columns"]] == [
+        "index",
+        "word",
+        "ipa",
+        "pos_abbr",
+        "zh_meaning",
+        "example",
+        "example_page",
+        "source",
+    ]
 
 
 def test_fill_route_uses_fixed_template_and_teaching_filename(monkeypatch) -> None:
@@ -91,7 +112,7 @@ def test_fill_route_uses_fixed_template_and_teaching_filename(monkeypatch) -> No
 
     assert response.status_code == 200
     assert response.headers["x-words-written"] == "1"
-    assert 'filename="lesson_filled.xlsx"' in response.headers["content-disposition"]
+    assert 'filename="lesson.xlsx"' in response.headers["content-disposition"]
 
 
 def test_fill_route_maps_vision_errors_to_502(monkeypatch) -> None:
@@ -187,9 +208,23 @@ def test_get_vocab_job_route_uses_job_store() -> None:
                 "stage_label": "准备下载",
                 "rows_written": 3,
                 "skipped_words": {"idea": "未在教材正文中定位到例句"},
+                "written_rows": [
+                    {
+                        "word": "apple",
+                        "ipa": "/apple/",
+                        "pos_abbr": "n.",
+                        "zh_meaning": "苹果",
+                        "example": "Apple is red.",
+                        "example_page": 1,
+                        "sources": ["pdf:qwen_vl"],
+                    }
+                ],
+                "skipped_items": [
+                    {"word": "idea", "reason": "未在教材正文中定位到例句", "sources": ["manual"]}
+                ],
                 "error_message": None,
                 "download_url": f"/v1/vocab/jobs/{job_id}/download",
-                "output_filename": "lesson_filled.xlsx",
+                "output_filename": "lesson.xlsx",
             }
 
     app.dependency_overrides[routes.get_job_store] = lambda: _FakeJobStore()
@@ -199,7 +234,11 @@ def test_get_vocab_job_route_uses_job_store() -> None:
 
     app.dependency_overrides.clear()
     assert response.status_code == 200
-    assert response.json()["rows_written"] == 3
+    data = response.json()
+    assert data["rows_written"] == 3
+    assert data["output_filename"] == "lesson.xlsx"
+    assert data["written_rows"][0]["word"] == "apple"
+    assert data["skipped_items"][0]["sources"] == ["manual"]
 
 
 def test_feedback_job_route_rejects_missing_source() -> None:
@@ -233,8 +272,8 @@ def test_regenerate_feedback_section_route_uses_job_store() -> None:
         "/v1/feedback/jobs/job-123/sections/patterns/regenerate",
         json={
             "draft_sections": [
-                {"key": "focus", "title": "本节课重点", "content": "⭐️旧内容"},
-                {"key": "patterns", "title": "规则 / 句型", "content": "1. 旧规则"},
+                {"key": "focus", "title": "本节课重点", "content": "旧内容"},
+                {"key": "patterns", "title": "规则 / 句型", "content": "旧规则"},
             ]
         },
     )

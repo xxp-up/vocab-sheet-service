@@ -8,7 +8,7 @@
 3. 可选结合音频识别结果和手工补词
 4. 用本地免费词典补全音标、词性、中文释义
 5. 从教材正文中定位例句
-6. 回填到固定模板 `template/test 6单词表模板.xlsx`
+6. 回填到固定模板 `template/单词表模板.xlsx`
 7. 返回生成后的 `.xlsx`
 
 ## 环境要求
@@ -330,7 +330,7 @@ dist/
 成功时直接返回 `.xlsx` 文件流，下载文件名规则：
 
 ```text
-{teaching_file.stem}_filled.xlsx
+{teaching_file.stem}.xlsx
 ```
 
 响应头：
@@ -440,7 +440,7 @@ vocab-sheet-service/
 │  ├─ services/
 │  └─ utils/
 ├─ template/
-│  └─ test 6单词表模板.xlsx
+│  └─ 单词表模板.xlsx
 ├─ tests/
 ├─ .env.example
 ├─ README.md

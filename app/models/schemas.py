@@ -26,9 +26,45 @@ class JobCreatedResponse(BaseModel):
     stage_label: str
 
 
+class VocabResultRow(BaseModel):
+    word: str
+    ipa: str
+    pos_abbr: str
+    zh_meaning: str
+    example: str
+    example_page: int | None = None
+    sources: list[str] = Field(default_factory=list)
+
+
+class VocabSkippedItem(BaseModel):
+    word: str
+    reason: str
+    sources: list[str] = Field(default_factory=list)
+
+
+class VocabTemplateColumn(BaseModel):
+    key: str
+    label: str
+
+
+class VocabResultField(BaseModel):
+    key: str
+    label: str
+    description: str
+
+
+class VocabTemplateInfoResponse(BaseModel):
+    template_filename: str
+    title_rule: str
+    columns: list[VocabTemplateColumn] = Field(default_factory=list)
+    result_fields: list[VocabResultField] = Field(default_factory=list)
+
+
 class VocabJobStatusResponse(JobCreatedResponse):
     rows_written: int = Field(default=0, ge=0)
     skipped_words: dict[str, str] = Field(default_factory=dict)
+    written_rows: list[VocabResultRow] = Field(default_factory=list)
+    skipped_items: list[VocabSkippedItem] = Field(default_factory=list)
     error_message: str | None = None
     download_url: str | None = None
     output_filename: str | None = None

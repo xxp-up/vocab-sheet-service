@@ -4,6 +4,7 @@ import asyncio
 from datetime import date
 from pathlib import Path
 
+from app.models.domain import VocabRow, VocabSkippedItem
 from app.services.jobs import _compose_feedback_source_text, _resolve_feedback_source_kind
 from app.services.jobs import FeedbackJobRecord, JobStore, VocabJobRecord
 
@@ -35,8 +36,8 @@ def test_job_store_detects_running_jobs_across_vocab_and_feedback() -> None:
         teaching_path=Path("lesson.pdf"),
         audio_path=None,
         words_text=None,
-        output_path=Path("lesson_filled.xlsx"),
-        output_filename="lesson_filled.xlsx",
+        output_path=Path("lesson.xlsx"),
+        output_filename="lesson.xlsx",
         status="processing",
     )
     store.feedback_jobs["feedback-1"] = FeedbackJobRecord(
@@ -61,8 +62,8 @@ def test_job_store_ignores_completed_and_failed_jobs_when_checking_running_state
         teaching_path=Path("lesson.pdf"),
         audio_path=None,
         words_text=None,
-        output_path=Path("lesson_filled.xlsx"),
-        output_filename="lesson_filled.xlsx",
+        output_path=Path("lesson.xlsx"),
+        output_filename="lesson.xlsx",
         status="completed",
     )
     store.feedback_jobs["feedback-1"] = FeedbackJobRecord(
@@ -77,3 +78,36 @@ def test_job_store_ignores_completed_and_failed_jobs_when_checking_running_state
     )
 
     assert asyncio.run(store.has_running_jobs()) is False
+
+
+def test_vocab_job_record_status_response_includes_written_rows_and_skipped_items() -> None:
+    record = VocabJobRecord(
+        job_id="job-1",
+        workdir=Path(".runtime/test-jobs/job-1"),
+        teaching_path=Path("lesson.pdf"),
+        audio_path=None,
+        words_text="apple",
+        output_path=Path("lesson.xlsx"),
+        output_filename="lesson.xlsx",
+        status="completed",
+        rows_written=1,
+        skipped_words={"idea": "未在教材正文中定位到例句"},
+        written_rows=[
+            VocabRow(
+                word="apple",
+                ipa="/apple/",
+                pos_abbr="n.",
+                zh_meaning="苹果",
+                example="Apple is red.",
+                example_page=1,
+                sources=["manual"],
+            )
+        ],
+        skipped_items=[VocabSkippedItem(word="idea", reason="未在教材正文中定位到例句", sources=["audio"])],
+    )
+
+    status = record.to_status_response()
+
+    assert status.output_filename == "lesson.xlsx"
+    assert status.written_rows[0].sources == ["manual"]
+    assert status.skipped_items[0].sources == ["audio"]

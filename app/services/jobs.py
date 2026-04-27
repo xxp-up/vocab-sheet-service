@@ -9,6 +9,7 @@ import uuid
 
 from fastapi import HTTPException, UploadFile
 
+from app.models.domain import VocabRow, VocabSkippedItem
 from app.models.schemas import FeedbackDraftSection, FeedbackJobStatusResponse, JobCreatedResponse, VocabJobStatusResponse
 from app.models.settings import Settings
 from app.services.audio import AudioService, AudioServiceError, UnsupportedAudioFormatError
@@ -54,6 +55,8 @@ class VocabJobRecord:
     stage_label: str = "等待开始"
     rows_written: int = 0
     skipped_words: dict[str, str] = field(default_factory=dict)
+    written_rows: list[VocabRow] = field(default_factory=list)
+    skipped_items: list[VocabSkippedItem] = field(default_factory=list)
     error_message: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -79,6 +82,8 @@ class VocabJobRecord:
             stage_label=self.stage_label,
             rows_written=self.rows_written,
             skipped_words=dict(self.skipped_words),
+            written_rows=[_serialize_vocab_row(row) for row in self.written_rows],
+            skipped_items=[_serialize_vocab_skipped_item(item) for item in self.skipped_items],
             error_message=self.error_message,
             download_url=download_url,
             output_filename=self.output_filename,
@@ -144,7 +149,7 @@ class JobStore:
     async def create_vocab_job(
         self,
         *,
-        settings: Settings,
+        settings: Settings, 
         pipeline: PipelineService,
         teaching_file: UploadFile,
         audio_file: UploadFile | None,
@@ -156,7 +161,7 @@ class JobStore:
         workdir.mkdir(parents=True, exist_ok=True)
         teaching_path = await _save_upload(teaching_file, workdir)
         audio_path = await _save_optional_upload(audio_file, workdir)
-        output_filename = f"{teaching_path.stem}_filled.xlsx"
+        output_filename = f"{teaching_path.stem}.xlsx"
         record = VocabJobRecord(
             job_id=job_id,
             workdir=workdir,
@@ -286,7 +291,13 @@ class JobStore:
         except PipelineContentError as exc:
             message = exc.detail.get("message", "处理失败")
             skipped_words = exc.detail.get("skipped_words", {}) if isinstance(exc.detail, dict) else {}
-            await self._fail_vocab_job(record.job_id, str(message), skipped_words if isinstance(skipped_words, dict) else {})
+            skipped_items = exc.detail.get("skipped_items", []) if isinstance(exc.detail, dict) else []
+            await self._fail_vocab_job(
+                record.job_id,
+                str(message),
+                skipped_words if isinstance(skipped_words, dict) else {},
+                skipped_items if isinstance(skipped_items, list) else [],
+            )
             return
         except UnsupportedAudioFormatError as exc:
             await self._fail_vocab_job(record.job_id, str(exc))
@@ -305,6 +316,8 @@ class JobStore:
             current.stage_label = "准备下载"
             current.rows_written = result.rows_written
             current.skipped_words = dict(result.skipped_words)
+            current.written_rows = list(result.written_rows)
+            current.skipped_items = list(result.skipped_items)
             current.updated_at = datetime.now(timezone.utc)
 
     async def _run_feedback_job(
@@ -422,7 +435,13 @@ class JobStore:
             record.progress_percent = progress_percent
             record.updated_at = datetime.now(timezone.utc)
 
-    async def _fail_vocab_job(self, job_id: str, message: str, skipped_words: dict[str, str] | None = None) -> None:
+    async def _fail_vocab_job(
+        self,
+        job_id: str,
+        message: str,
+        skipped_words: dict[str, str] | None = None,
+        skipped_items: list[dict[str, object] | VocabSkippedItem] | None = None,
+    ) -> None:
         async with self._lock:
             record = self.vocab_jobs.get(job_id)
             if record is None:
@@ -432,6 +451,7 @@ class JobStore:
             record.stage_label = "处理失败"
             record.error_message = message
             record.skipped_words = skipped_words or record.skipped_words
+            record.skipped_items = _deserialize_vocab_skipped_items(skipped_items) or record.skipped_items
             record.updated_at = datetime.now(timezone.utc)
 
     async def _fail_feedback_job(self, job_id: str, message: str) -> None:
@@ -519,3 +539,43 @@ async def _save_optional_upload(upload: UploadFile | None, workdir: Path) -> Pat
         await upload.close()
         return None
     return await _save_upload(upload, workdir)
+
+
+def _serialize_vocab_row(row: VocabRow) -> dict[str, object]:
+    return {
+        "word": row.word,
+        "ipa": row.ipa,
+        "pos_abbr": row.pos_abbr,
+        "zh_meaning": row.zh_meaning,
+        "example": row.example,
+        "example_page": row.example_page,
+        "sources": list(row.sources),
+    }
+
+
+def _serialize_vocab_skipped_item(item: VocabSkippedItem) -> dict[str, object]:
+    return {
+        "word": item.word,
+        "reason": item.reason,
+        "sources": list(item.sources),
+    }
+
+
+def _deserialize_vocab_skipped_items(
+    items: list[dict[str, object] | VocabSkippedItem] | None,
+) -> list[VocabSkippedItem]:
+    if not items:
+        return []
+    result: list[VocabSkippedItem] = []
+    for item in items:
+        if isinstance(item, VocabSkippedItem):
+            result.append(item)
+            continue
+        result.append(
+            VocabSkippedItem(
+                word=str(item.get("word", "")),
+                reason=str(item.get("reason", "")),
+                sources=[str(source) for source in item.get("sources", []) if str(source).strip()],
+            )
+        )
+    return result

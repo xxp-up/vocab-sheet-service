@@ -23,6 +23,7 @@ from app.models.schemas import (
     SettingsUpdateRequest,
     SettingsValidateResponse,
     VocabJobStatusResponse,
+    VocabTemplateInfoResponse,
 )
 from app.models.settings import ConfigurationError, Settings, get_settings
 from app.services.audio import AudioService, AudioServiceError, UnsupportedAudioFormatError
@@ -34,7 +35,14 @@ from app.services.lexicon import LexiconService, LexiconServiceError
 from app.services.pipeline import PipelineContentError, PipelineService
 from app.services.settings_manager import SettingsManager, SettingsValidationError
 from app.services.vision import VisionServiceError
-from app.services.workbook import WorkbookService, WorkbookTemplateError
+from app.services.workbook import (
+    DEFAULT_TEMPLATE_NAME,
+    TEMPLATE_COLUMNS,
+    TEMPLATE_RESULT_FIELDS,
+    TEMPLATE_TITLE_RULE,
+    WorkbookService,
+    WorkbookTemplateError,
+)
 
 
 router = APIRouter()
@@ -74,6 +82,16 @@ async def index() -> HTMLResponse:
     return HTMLResponse(INDEX_HTML_PATH.read_text(encoding="utf-8"))
 
 
+@router.get("/v1/vocab/template", response_model=VocabTemplateInfoResponse)
+async def get_vocab_template_info() -> VocabTemplateInfoResponse:
+    return VocabTemplateInfoResponse(
+        template_filename=f"template/{DEFAULT_TEMPLATE_NAME}",
+        title_rule=TEMPLATE_TITLE_RULE,
+        columns=TEMPLATE_COLUMNS,
+        result_fields=TEMPLATE_RESULT_FIELDS,
+    )
+
+
 @router.post("/v1/vocab/fill", responses={200: {"content": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}}}})
 async def fill_vocab_sheet(
     teaching_file: UploadFile = File(...),
@@ -93,7 +111,7 @@ async def fill_vocab_sheet(
 
         teaching_path = await _save_upload(teaching_file, workdir)
         audio_path = await _save_optional_upload(audio_file, workdir)
-        output_name = f"{teaching_path.stem}_filled.xlsx"
+        output_name = f"{teaching_path.stem}.xlsx"
         output_path = workdir / output_name
         logger.info(
             "Started vocab fill request: teaching_file=%s audio_file=%s manual_words_provided=%s workdir=%s",

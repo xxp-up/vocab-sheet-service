@@ -63,11 +63,6 @@
           <h1>教材题词与课后反馈工作台</h1>
           <p class="lead">把教材上传、补词、进度跟踪、课后总结和系统配置收进同一个清晰工作台。</p>
         </div>
-        <div id="template-note" class="template-note">
-          <span class="template-label">固定模板</span>
-          <strong>template/test 6单词表模板.xlsx</strong>
-          <p>题词结果将自动回填到该模板并生成下载文件。</p>
-        </div>
       </header>
 
       <nav class="tabbar" aria-label="工作台模块">
@@ -108,7 +103,7 @@
                       <svg><use href="#icon-circle-help"></use></svg>
                     </button>
                     <div class="tooltip-card" data-tooltip-content>
-                      支持 PDF / DOCX；DOCX 优先识别连续红字、下划线、批注；PDF 可识别红字、下划线、框选、高亮等明显强调；只提取被明确标注的英文词或词组；词组需连续标注；正文中必须能定位到例句；若 DOCX 主要依赖背景色高亮，建议先转 PDF。
+                      支持 PDF / DOCX。DOCX 优先识别连续红字、下划线、批注；PDF 可识别红字、下划线、框选、高亮等明显强调；只提取被明确标注的英文词或词组；词组需连续标注。若 DOCX 主要依赖背景色高亮，建议先转 PDF。
                     </div>
                   </div>
                 </div>
@@ -132,7 +127,7 @@
                       <svg><use href="#icon-circle-help"></use></svg>
                     </button>
                     <div class="tooltip-card" data-tooltip-content>
-                      上传课堂或朗读音频，仅用于补充候选单词；最终仍以教材正文能否定位例句为准。
+                      上传课堂或朗读音频，仅用于补充候选单词；最终仍以教材正文和词典补全结果为准。
                     </div>
                   </div>
                 </div>
@@ -168,14 +163,14 @@
                     placeholder="例如：apple, improve, growth mindset"
                   ></textarea>
                   <div id="manual-words-chips" class="chips-row"></div>
-                  <p class="field-note">未能在教材正文定位例句的词，不会写入最终表格。</p>
+                  <p class="field-note">手工补入的词会先去重。若教材正文中能定位到例句，就按正常规则写入；若教材中没有出现，也会补全音标、词性和中文意思，并以空例句写入模板。</p>
                 </div>
               </section>
 
               <section class="submit-strip">
                 <div>
                   <p class="submit-title">准备开始处理</p>
-                  <p class="submit-subtext">提交后会在右侧显示当前任务进度，完成后自动下载 .xlsx 文件。</p>
+                  <p class="submit-subtext">提交后会在右侧显示当前任务进度，完成后自动下载 `.xlsx` 文件。</p>
                 </div>
                 <button id="vocab-submit" class="primary-button" type="submit">
                   <svg><use href="#icon-sparkles"></use></svg>
@@ -183,6 +178,39 @@
                 </button>
               </section>
             </form>
+
+            <section id="result-inspector" class="result-inspector hidden">
+              <div class="result-inspector-head">
+                <div>
+                  <p class="section-kicker">生成结果检查</p>
+                  <h3 id="result-inspector-title">词表明细</h3>
+                </div>
+                <p id="result-inspector-summary" class="result-inspector-summary">处理完成后，这里会展示完整写入明细与处理异常明细。</p>
+              </div>
+
+              <div class="result-inspector-meta">
+                <div class="result-meta-item">
+                  <span class="template-meta-label">输出文件</span>
+                  <strong id="result-output-filename">-</strong>
+                </div>
+                <div class="result-meta-item">
+                  <span class="template-meta-label">写入词数</span>
+                  <strong id="result-written-count">0</strong>
+                </div>
+                <div class="result-meta-item">
+                  <span class="template-meta-label">处理异常数</span>
+                  <strong id="result-skipped-count">0</strong>
+                </div>
+              </div>
+
+              <div class="result-tabs" role="tablist" aria-label="词表结果明细">
+                <button id="result-tab-written" class="result-tab-button active" type="button" data-result-tab="written">写入明细</button>
+                <button id="result-tab-exception" class="result-tab-button" type="button" data-result-tab="exception">处理异常</button>
+              </div>
+
+              <section id="result-panel-written" class="result-panel active" data-result-panel="written"></section>
+              <section id="result-panel-exception" class="result-panel hidden" data-result-panel="exception"></section>
+            </section>
           </section>
 
           <section id="feedback-panel" class="panel" data-panel>
@@ -378,14 +406,14 @@
 
             <div id="result-card" class="result-card hidden">
               <div class="result-stats">
-                <div>
+                <button class="result-stat-button" type="button" data-result-tab-trigger="written">
                   <span class="result-label">写入词数</span>
                   <strong id="rows-written">0</strong>
-                </div>
-                <div>
-                  <span class="result-label">跳过词数</span>
+                </button>
+                <button class="result-stat-button" type="button" data-result-tab-trigger="exception">
+                  <span class="result-label">处理异常数</span>
                   <strong id="rows-skipped">0</strong>
-                </div>
+                </button>
               </div>
               <div id="skip-reasons" class="skip-reasons"></div>
               <button id="redownload-button" class="secondary-button icon-button hidden" type="button">
