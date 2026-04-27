@@ -454,7 +454,7 @@ function renderFeedbackSections(sections) {
     card.innerHTML = `
       <div class="feedback-section-head">
         <h4>${escapeHTML(section.title)}</h4>
-        <button class="secondary-button icon-button" type="button" data-reset-section="${escapeHTML(section.key)}">
+        <button class="secondary-button icon-button" type="button" data-regenerate-section="${escapeHTML(section.key)}">
           <svg><use href="#icon-refresh"></use></svg>
           <span>重新生成本模块</span>
         </button>
@@ -466,16 +466,66 @@ function renderFeedbackSections(sections) {
     container.appendChild(card);
   });
 
-  container.querySelectorAll("[data-reset-section]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const key = button.dataset.resetSection;
-      const textarea = container.querySelector(`[data-feedback-section-key="${cssEscape(key)}"] textarea`);
-      if (textarea && state.feedbackOriginals.has(key)) {
-        textarea.value = state.feedbackOriginals.get(key);
-        showToast("该模块已恢复为初始生成内容。");
-      }
+  container.querySelectorAll("[data-regenerate-section]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const key = button.dataset.regenerateSection;
+      await regenerateFeedbackSection(key, button);
     });
   });
+}
+
+async function regenerateFeedbackSection(sectionKey, button) {
+  const jobId = state.activeTaskKind === "feedback"
+    ? state.activeTaskId
+    : localStorage.getItem(STORAGE_KEYS.feedbackJobId);
+  if (!jobId || !sectionKey) {
+    showBanner("未找到可重生成的反馈任务，请先重新生成反馈草稿。");
+    return;
+  }
+
+  const textarea = document.querySelector(`[data-feedback-section-key="${cssEscape(sectionKey)}"] textarea`);
+  if (!textarea) {
+    showBanner("未找到对应的反馈模块。");
+    return;
+  }
+
+  const originalLabel = button?.querySelector("span")?.textContent || "";
+  if (button) {
+    button.disabled = true;
+    const span = button.querySelector("span");
+    if (span) {
+      span.textContent = "重新生成中...";
+    }
+  }
+
+  try {
+    const section = await requestJSON(`/v1/feedback/jobs/${jobId}/sections/${encodeURIComponent(sectionKey)}/regenerate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ draft_sections: collectFeedbackSections() }),
+    });
+    textarea.value = section.content || "";
+    state.feedbackOriginals.set(section.key, section.content || "");
+    showToast("该模块已根据原始课堂内容重新生成。");
+  } catch (error) {
+    showBanner(resolveErrorMessage(error));
+  } finally {
+    if (button) {
+      button.disabled = false;
+      const span = button.querySelector("span");
+      if (span) {
+        span.textContent = originalLabel || "重新生成本模块";
+      }
+    }
+  }
+}
+
+function collectFeedbackSections() {
+  return Array.from(document.querySelectorAll("[data-feedback-section] textarea")).map((item) => ({
+    key: item.closest("[data-feedback-section-key]")?.dataset.feedbackSectionKey || "",
+    title: item.dataset.title || "",
+    content: item.value || "",
+  })).filter((item) => item.key);
 }
 
 function renderSkipReasons(skippedWords) {

@@ -14,6 +14,8 @@ from starlette.background import BackgroundTask
 from app.models.schemas import (
     AudioTranscriptionResponse,
     FeedbackJobStatusResponse,
+    FeedbackDraftSection,
+    FeedbackSectionRegenerateRequest,
     FillSummary,
     HealthResponse,
     JobCreatedResponse,
@@ -208,7 +210,7 @@ async def create_feedback_job(
 ) -> JobCreatedResponse:
     return await job_store.create_feedback_job(
         settings=settings,
-        feedback_service=FeedbackService(),
+        feedback_service=FeedbackService(settings),
         audio_service=AudioService(settings),
         lesson_date=lesson_date,
         lesson_index=lesson_index,
@@ -221,6 +223,22 @@ async def create_feedback_job(
 @router.get("/v1/feedback/jobs/{job_id}", response_model=FeedbackJobStatusResponse)
 async def get_feedback_job(job_id: str, job_store: JobStore = Depends(get_job_store)) -> FeedbackJobStatusResponse:
     return await job_store.get_feedback_job(job_id)
+
+
+@router.post("/v1/feedback/jobs/{job_id}/sections/{section_key}/regenerate", response_model=FeedbackDraftSection)
+async def regenerate_feedback_section(
+    job_id: str,
+    section_key: str,
+    payload: FeedbackSectionRegenerateRequest,
+    settings: Settings = Depends(get_settings),
+    job_store: JobStore = Depends(get_job_store),
+) -> FeedbackDraftSection:
+    return await job_store.regenerate_feedback_section(
+        job_id=job_id,
+        section_key=section_key,
+        feedback_service=FeedbackService(settings),
+        draft_sections=payload.draft_sections,
+    )
 
 
 @router.get("/v1/settings", response_model=SettingsResponse)

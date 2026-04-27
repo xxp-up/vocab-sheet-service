@@ -214,6 +214,36 @@ def test_feedback_job_route_rejects_missing_source() -> None:
     assert "课堂音频或逐字稿文本" in response.json()["detail"]
 
 
+def test_regenerate_feedback_section_route_uses_job_store() -> None:
+    class _FakeJobStore:
+        async def regenerate_feedback_section(self, **kwargs):
+            assert kwargs["job_id"] == "job-123"
+            assert kwargs["section_key"] == "patterns"
+            assert kwargs["draft_sections"][0].key == "focus"
+            return {
+                "key": "patterns",
+                "title": "规则 / 句型",
+                "content": "1. 重新整理后的规则总结。",
+            }
+
+    app.dependency_overrides[routes.get_job_store] = lambda: _FakeJobStore()
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/feedback/jobs/job-123/sections/patterns/regenerate",
+        json={
+            "draft_sections": [
+                {"key": "focus", "title": "本节课重点", "content": "⭐️旧内容"},
+                {"key": "patterns", "title": "规则 / 句型", "content": "1. 旧规则"},
+            ]
+        },
+    )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["content"] == "1. 重新整理后的规则总结。"
+
+
 def test_settings_routes_use_manager_dependency() -> None:
     class _FakeSettingsManager:
         def get_settings_response(self) -> SettingsResponse:

@@ -215,6 +215,42 @@ class JobStore:
             raise HTTPException(status_code=404, detail="未找到对应的课后反馈任务。")
         return record.to_status_response()
 
+    async def regenerate_feedback_section(
+        self,
+        *,
+        job_id: str,
+        section_key: str,
+        feedback_service: FeedbackService,
+        draft_sections: list[FeedbackDraftSection] | None = None,
+    ) -> FeedbackDraftSection:
+        await self._cleanup_expired_jobs()
+        async with self._lock:
+            record = self.feedback_jobs.get(job_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="未找到对应的课后反馈任务。")
+        if record.status != "completed":
+            raise HTTPException(status_code=409, detail="当前任务尚未生成可编辑的反馈草稿。")
+
+        section = await feedback_service.regenerate_section(
+            section_key=section_key,
+            transcript_text=record.transcript_text,
+            lesson_date=record.lesson_date,
+            lesson_index=record.lesson_index,
+            class_name=record.class_name,
+            draft_sections=draft_sections or list(record.draft_sections),
+        )
+
+        async with self._lock:
+            current = self.feedback_jobs.get(job_id)
+            if current is None:
+                raise HTTPException(status_code=404, detail="未找到对应的课后反馈任务。")
+            current.draft_sections = _replace_feedback_section(current.draft_sections, section)
+            current.composed_text = "\n\n".join(
+                f"{item.title}\n{item.content}".strip() for item in current.draft_sections
+            )
+            current.updated_at = datetime.now(timezone.utc)
+        return section
+
     async def get_vocab_download(self, job_id: str) -> tuple[Path, str]:
         status = await self.get_vocab_job(job_id)
         if status.status != "completed" or not status.download_url:
@@ -270,21 +306,32 @@ class JobStore:
     ) -> None:
         await self._set_feedback_stage(record.job_id, status="processing", stage_code="source_preparing")
         try:
-            transcript_text = record.transcript_text
-            if not transcript_text and record.audio_path is not None:
+            manual_transcript_text = record.transcript_text.strip()
+            audio_transcript_text = ""
+            if record.audio_path is not None:
                 await self._set_feedback_stage(record.job_id, status="processing", stage_code="audio_transcribing")
-                transcription = await audio_service.transcribe_audio(record.audio_path)
-                transcript_text = transcription.transcript_text
+                transcription = await audio_service.transcribe_feedback_audio(record.audio_path)
+                audio_transcript_text = transcription.transcript_text.strip()
+
+            transcript_text = _compose_feedback_source_text(
+                audio_transcript_text=audio_transcript_text,
+                manual_transcript_text=manual_transcript_text,
+            )
+            source_kind = _resolve_feedback_source_kind(
+                audio_transcript_text=audio_transcript_text,
+                manual_transcript_text=manual_transcript_text,
+            )
 
             if not transcript_text.strip():
                 raise FeedbackGenerationError("音频中未识别到可生成反馈的课堂内容。")
 
             await self._set_feedback_stage(record.job_id, status="processing", stage_code="draft_generating")
-            draft = feedback_service.generate_draft(
+            draft = await feedback_service.generate_draft(
                 transcript_text=transcript_text,
                 lesson_date=record.lesson_date,
                 lesson_index=record.lesson_index,
                 class_name=record.class_name,
+                source_kind=source_kind,
             )
         except (FeedbackGenerationError, AudioServiceError, UnsupportedAudioFormatError) as exc:
             await self._fail_feedback_job(record.job_id, str(exc))
@@ -401,6 +448,46 @@ class JobStore:
 
         for path in stale_dirs:
             shutil.rmtree(path, ignore_errors=True)
+
+
+def _resolve_feedback_source_kind(*, audio_transcript_text: str, manual_transcript_text: str) -> str:
+    if audio_transcript_text and manual_transcript_text:
+        return "mixed"
+    if audio_transcript_text:
+        return "audio"
+    return "manual"
+
+
+def _compose_feedback_source_text(*, audio_transcript_text: str, manual_transcript_text: str) -> str:
+    audio_text = audio_transcript_text.strip()
+    manual_text = manual_transcript_text.strip()
+    if audio_text and manual_text:
+        return (
+            "【合并要求】\n"
+            "请同时参考课堂音频转写和老师补充笔记：音频用于还原真实课堂内容，补充笔记用于校正和补充重点、作业、学生表现。\n\n"
+            "【课堂音频转写】\n"
+            f"{audio_text}\n\n"
+            "【老师补充笔记 / 逐字稿】\n"
+            f"{manual_text}"
+        ).strip()
+    return audio_text or manual_text
+
+
+def _replace_feedback_section(
+    existing_sections: list[FeedbackDraftSection],
+    next_section: FeedbackDraftSection,
+) -> list[FeedbackDraftSection]:
+    replaced = False
+    updated_sections: list[FeedbackDraftSection] = []
+    for section in existing_sections:
+        if section.key == next_section.key:
+            updated_sections.append(next_section)
+            replaced = True
+        else:
+            updated_sections.append(section)
+    if not replaced:
+        updated_sections.append(next_section)
+    return updated_sections
 
 
 async def _save_upload(upload: UploadFile | None, workdir: Path) -> Path:

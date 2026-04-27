@@ -40,6 +40,10 @@ class FeedbackDraftSection(BaseModel):
     content: str
 
 
+class FeedbackSectionRegenerateRequest(BaseModel):
+    draft_sections: list[FeedbackDraftSection] = Field(default_factory=list)
+
+
 class FeedbackJobStatusResponse(JobCreatedResponse):
     draft_sections: list[FeedbackDraftSection] = Field(default_factory=list)
     composed_text: str = ""

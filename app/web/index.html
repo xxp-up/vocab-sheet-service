@@ -191,7 +191,7 @@
                 <p class="section-kicker">课后反馈流程</p>
                 <h2>导入课堂内容，生成可编辑反馈</h2>
               </div>
-              <p class="section-meta">流程：音频或逐字稿输入 → 自动生成结构化草稿 → 页面内编辑与复制</p>
+              <p class="section-meta">流程：课堂音频 + 可选补充逐字稿 → 自动生成结构化草稿 → 页面内编辑与复制</p>
             </div>
 
             <form id="feedback-form" class="form-stack" novalidate>
@@ -227,22 +227,23 @@
                 </div>
                 <div class="source-card">
                   <div class="section-title-row">
-                    <h3>粘贴逐字稿</h3>
+                    <h3>粘贴逐字稿 / 补充笔记</h3>
                     <span class="badge badge-optional">可选</span>
                   </div>
                   <textarea
                     id="feedback-transcript"
                     name="transcript_text"
                     rows="8"
-                    placeholder="可以直接粘贴课堂逐字稿、老师笔记或转写文本。"
+                    placeholder="可补充课堂逐字稿、老师笔记、作业布置或需要特别强调的课堂表现；若同时上传音频，系统会合并两者后再生成反馈。"
                   ></textarea>
+                  <p class="field-note">填写这里会作为对课堂音频的补充信息；如果未上传音频，也可以单独依靠这里的文本生成反馈。</p>
                 </div>
               </section>
 
               <section class="submit-strip">
                 <div>
                   <p class="submit-title">生成反馈草稿</p>
-                  <p class="submit-subtext">生成后可按模块编辑、恢复原稿、复制全文或单独复制作业。</p>
+                  <p class="submit-subtext">生成后可按模块编辑、重新生成单个模块、复制全文或单独复制作业。</p>
                 </div>
                 <button id="feedback-submit" class="primary-button" type="submit">
                   <svg><use href="#icon-sparkles"></use></svg>

@@ -16,8 +16,10 @@ USER_AGENT = "vocab-sheet-service/0.1"
 DOWNLOAD_RETRY_ATTEMPTS = 3
 DOWNLOAD_RETRY_DELAY_SECONDS = 1.0
 
-VOSK_MODEL_NAME = "vosk-model-small-en-us-0.15"
-VOSK_MODEL_URL = f"https://alphacephei.com/vosk/models/{VOSK_MODEL_NAME}.zip"
+VOSK_MODEL_ENGLISH_NAME = "vosk-model-small-en-us-0.15"
+VOSK_MODEL_ENGLISH_URL = f"https://alphacephei.com/vosk/models/{VOSK_MODEL_ENGLISH_NAME}.zip"
+VOSK_MODEL_CHINESE_NAME = "vosk-model-small-cn-0.22"
+VOSK_MODEL_CHINESE_URL = f"https://alphacephei.com/vosk/models/{VOSK_MODEL_CHINESE_NAME}.zip"
 
 
 class ResourceBootstrapError(RuntimeError):
@@ -61,21 +63,27 @@ def ensure_lexicon_resources(runtime_root: Path, timeout_seconds: float) -> tupl
     return cmudict_path, cedict_db_path
 
 
-def ensure_speech_runtime(runtime_root: Path, timeout_seconds: float) -> tuple[Path, Path]:
+def ensure_speech_runtime(
+    runtime_root: Path,
+    timeout_seconds: float,
+    *,
+    speech_model: str = "english",
+) -> tuple[Path, Path]:
     bootstrap_root = runtime_root / "bootstrap"
     vendor_root = bootstrap_root / "vendor"
     _ensure_wheels(vendor_root, SPEECH_WHEELS, timeout_seconds)
     _ensure_srt_stub(vendor_root)
     _ensure_sys_path(vendor_root)
 
+    model_name, model_url = _resolve_speech_model(speech_model)
     model_root = bootstrap_root / "models"
-    model_path = model_root / VOSK_MODEL_NAME
-    archive_path = model_root / f"{VOSK_MODEL_NAME}.zip"
+    model_path = model_root / model_name
+    archive_path = model_root / f"{model_name}.zip"
 
     with BOOTSTRAP_LOCK:
         if not model_path.exists():
             model_root.mkdir(parents=True, exist_ok=True)
-            _download_file(VOSK_MODEL_URL, archive_path, timeout_seconds)
+            _download_file(model_url, archive_path, timeout_seconds)
             try:
                 shutil.rmtree(model_path, ignore_errors=True)
                 with zipfile.ZipFile(archive_path) as archive:
@@ -93,6 +101,15 @@ def ensure_speech_runtime(runtime_root: Path, timeout_seconds: float) -> tuple[P
     if not model_path.exists():
         raise ResourceBootstrapError("The Vosk model could not be prepared.")
     return vendor_root, model_path
+
+
+def _resolve_speech_model(speech_model: str) -> tuple[str, str]:
+    normalized = speech_model.strip().lower()
+    if normalized == "english":
+        return VOSK_MODEL_ENGLISH_NAME, VOSK_MODEL_ENGLISH_URL
+    if normalized == "chinese":
+        return VOSK_MODEL_CHINESE_NAME, VOSK_MODEL_CHINESE_URL
+    raise ResourceBootstrapError(f"Unsupported speech model: {speech_model}")
 
 
 def _ensure_wheels(extract_root: Path, specs: tuple[WheelSpec, ...], timeout_seconds: float) -> None:
