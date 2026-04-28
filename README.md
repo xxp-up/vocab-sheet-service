@@ -1,15 +1,22 @@
 ﻿# Vocab Sheet Service
 
-基于 FastAPI 的教材抽词与词表回填服务。
+基于 FastAPI 的教材提词、词表回填与课后反馈工作台。
 
-当前服务流程：
-1. 上传教材文件 `PDF` / `DOCX`
-2. 识别教材中的重点英文词
-3. 可选结合音频识别结果和手工补词
-4. 用本地免费词典补全音标、词性、中文释义
-5. 从教材正文中定位例句
-6. 回填到固定模板 `template/单词表模板.xlsx`
-7. 返回生成后的 `.xlsx`
+当前项目主要包含 3 类能力：
+
+1. `教材提词`
+   上传带标注的 `PDF` / `DOCX` 教材，提取重点英文词或词组，补全音标、词性、中文意思和例句，并回填到固定 Excel 模板。
+2. `课后反馈`
+   上传课堂音频，或粘贴逐字稿 / 补充笔记，生成可编辑、可复制的课后反馈草稿。
+3. `系统配置`
+   在 Web 工作台内维护 `VISION_API_KEY`、模型地址、模型名称与超时参数。
+
+## 文档导航
+
+- [用户操作手册](docs/用户操作手册.md)
+  面向老师、教务或运营同事，重点说明页面操作、输入要求、结果解读和常见异常。
+- `README.md`
+  面向部署、分发和开发人员，重点说明环境准备、启动方式、配置、打包与接口。
 
 ## 环境要求
 - 运行机器必须预先安装 **Python 3.12**
@@ -42,6 +49,7 @@ VISION_API_KEY=你的密钥
 ```
 
 5. 浏览器打开 `http://127.0.0.1:8000/`
+6. 首次进入建议先打开 `系统配置` 页面，校验并保存 `VISION_API_KEY`
 
 ### 开发者模式
 
@@ -70,6 +78,43 @@ cp .env.example .env
 ```env
 VISION_API_KEY=你的密钥
 ```
+
+启动服务：
+
+```bash
+.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+然后打开：
+
+```text
+http://127.0.0.1:8000/
+```
+
+## Web 工作台说明
+
+启动后访问：
+
+```text
+http://127.0.0.1:8000/
+```
+
+当前页面包含 3 个标签页：
+
+| 页面 | 作用 |
+| --- | --- |
+| `教材提词` | 上传教材、可选上传音频、手工补词、跟踪生成进度并下载词表 |
+| `课后反馈` | 导入课堂音频或逐字稿，生成并编辑课后反馈草稿 |
+| `系统配置` | 维护密钥、模型地址、模型名称和超时参数 |
+
+首次使用建议顺序：
+
+1. 打开 `系统配置`
+2. 填写并测试 `VISION_API_KEY`
+3. 先试跑一份 `教材提词`
+4. 再开始使用 `课后反馈`
+
+如果你是日常使用者，建议优先看 [用户操作手册](docs/用户操作手册.md)。
 
 ## 安装脚本说明
 
@@ -258,6 +303,7 @@ dist/
 | 路径 | 作用 | 是否建议保留 |
 | --- | --- | --- |
 | `app/` | 服务源码 | 是 |
+| `docs/` | 项目文档与用户手册 | 建议保留 |
 | `template/` | 固定 Excel 模板 | 是 |
 | `tests/` | 自动化测试 | 开发时保留 |
 | `pyproject.toml` | 依赖与 Python 版本约束 | 是 |
@@ -315,9 +361,24 @@ dist/
 
 返回本地调试用上传页面。
 
+### `GET /v1/vocab/template`
+
+返回固定模板说明，包括：
+
+- 模板文件名
+- 标题写入规则
+- 模板列定义
+- 前端结果区使用的字段说明
+
 ### `POST /v1/vocab/fill`
 
-使用 `multipart/form-data` 上传教材并生成词表。
+同步接口，使用 `multipart/form-data` 上传教材并直接返回词表文件。
+
+适合：
+
+- 脚本直调
+- 调试
+- 不需要前端任务进度时使用
 
 请求字段：
 
@@ -347,6 +408,123 @@ curl.exe -X POST "http://127.0.0.1:8000/v1/vocab/fill" ^
   -F "audio_file=@lesson.mp3" ^
   -F "words_text=apple, improve, watch"
 ```
+
+### `POST /v1/vocab/jobs`
+
+异步创建教材提词任务。Web 工作台默认使用这一组接口。
+
+请求字段与 `POST /v1/vocab/fill` 基本一致：
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `teaching_file` | 是 | 教材文件，支持 `.pdf` / `.docx` |
+| `audio_file` | 否 | 音频文件，辅助提词 |
+| `words_text` | 否 | 手工补充单词文本 |
+
+返回：
+
+- `job_id`
+- `status`
+- `progress_percent`
+- `stage_code`
+- `stage_label`
+
+### `GET /v1/vocab/jobs/{job_id}`
+
+查询教材提词任务状态。
+
+响应会包含：
+
+- 当前阶段和进度
+- `rows_written`
+- `written_rows`
+- `skipped_words`
+- `skipped_items`
+- `download_url`
+- `output_filename`
+
+### `GET /v1/vocab/jobs/{job_id}/download`
+
+下载异步教材提词任务生成的 Excel 文件。
+
+### `POST /v1/feedback/jobs`
+
+创建课后反馈生成任务。
+
+请求字段：
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `lesson_date` | 是 | 上课日期，格式如 `2026-04-28` |
+| `lesson_index` | 是 | 节次，从 `1` 开始 |
+| `class_name` | 否 | 班级或课程名 |
+| `transcript_text` | 否 | 逐字稿、老师补充笔记 |
+| `audio_file` | 否 | 课堂音频 |
+
+说明：
+
+- `audio_file` 和 `transcript_text` 至少提供一个
+- 如果两者同时提供，系统会合并后生成反馈草稿
+
+### `GET /v1/feedback/jobs/{job_id}`
+
+查询课后反馈任务状态。
+
+响应会包含：
+
+- 当前阶段和进度
+- `draft_sections`
+- `composed_text`
+- `transcript_text`
+- `error_message`
+
+### `POST /v1/feedback/jobs/{job_id}/sections/{section_key}/regenerate`
+
+重新生成某一个反馈模块。
+
+当前反馈草稿默认包含以下模块键：
+
+- `header`
+- `focus`
+- `patterns`
+- `homework`
+- `teacher_note`
+
+### `GET /v1/settings`
+
+读取当前系统配置。
+
+返回内容包括：
+
+- `REQUEST_TIMEOUT_SECONDS`
+- `RUNTIME_ROOT`
+- `VISION_BASE_URL`
+- `VISION_MODEL`
+- `VISION_TIMEOUT_SECONDS`
+- 脱敏后的密钥状态
+
+### `PUT /v1/settings`
+
+保存系统配置。
+
+说明：
+
+- 正在运行教材提词或课后反馈任务时，不允许保存
+- `VISION_API_KEY` 留空时，沿用当前密钥
+- 保存后仅新任务使用新配置
+
+### `POST /v1/settings/validate`
+
+校验当前表单配置是否能连通视觉服务，但不会保存到 `.env`。
+
+### `POST /v1/audio/transcribe`
+
+把音频转成文本，并返回候选单词列表。
+
+适合：
+
+- Web 页面中的 `点麦补词`
+- 单独调试音频识别效果
 
 ## 开发与测试
 
@@ -439,6 +617,8 @@ vocab-sheet-service/
 │  ├─ models/
 │  ├─ services/
 │  └─ utils/
+├─ docs/
+│  └─ 用户操作手册.md
 ├─ template/
 │  └─ 单词表模板.xlsx
 ├─ tests/
