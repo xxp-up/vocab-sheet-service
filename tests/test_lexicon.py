@@ -1,5 +1,5 @@
 from app.services.audio import _build_vosk_grammar
-from app.services.lexicon import _arpabet_to_ipa, _lemma_candidates, _parse_translation
+from app.services.lexicon import _arpabet_to_ipa, _build_meaning, _lemma_candidates, _parse_translation
 
 
 def test_arpabet_to_ipa_converts_stress_marks():
@@ -16,6 +16,37 @@ def test_parse_translation_splits_stuck_pos_prefixes():
     pos_abbr, zh_meaning = _parse_translation("adj.较好的adv.更好的,更多的")
     assert pos_abbr == "adj."
     assert zh_meaning == "较好的"
+
+
+def test_parse_translation_keeps_adv_prefix_intact():
+    pos_abbr, zh_meaning = _parse_translation("adv.特别,尤其")
+    assert pos_abbr == "adv."
+    assert zh_meaning == "特别"
+
+
+def test_parse_translation_can_prefer_inflected_verb_meaning():
+    pos_abbr, zh_meaning = _parse_translation("adj.全部的,完全的,完成的vt.完成,使完善", preferred_pos="v.")
+    assert pos_abbr == "v."
+    assert zh_meaning == "完成"
+
+
+def test_build_meaning_uses_common_phrase_fallback():
+    result = _build_meaning("in the future", "in the future", {}, {})
+    assert result is not None
+    assert result.pos_abbr == "phr."
+    assert result.zh_meaning == "将来；未来"
+
+
+def test_build_meaning_prefers_verb_for_ing_forms():
+    result = _build_meaning(
+        "completing",
+        "completing",
+        {},
+        {"complete": "adj.全部的,完全的,完成的vt.完成,使完善"},
+    )
+    assert result is not None
+    assert result.pos_abbr == "v."
+    assert result.zh_meaning == "完成"
 
 
 def test_lemma_candidates_include_common_inflections():

@@ -1,69 +1,241 @@
 ﻿# Vocab Sheet Service
 
-基于 FastAPI 的教材提词、词表回填与课后反馈工作台。
-
-当前项目主要包含 3 类能力：
+基于 FastAPI 的教学材料处理工具，当前聚焦两类一线工作：
 
 1. `教材提词`
-   上传带标注的 `PDF` / `DOCX` 教材，提取重点英文词或词组，补全音标、词性、中文意思和例句，并回填到固定 Excel 模板。
+   从带明显标注的 `PDF` / `DOCX` 教材中提取重点英文词或词组，
+   自动补全音标、词性、中文意思和例句，并回填到固定 Excel 模板。
 2. `课后反馈`
-   上传课堂音频，或粘贴逐字稿 / 补充笔记，生成可编辑、可复制的课后反馈草稿。
-3. `系统配置`
-   在 Web 工作台内维护 `VISION_API_KEY`、模型地址、模型名称与超时参数。
+   根据课堂音频、逐字稿或补充笔记，生成可编辑、可复制的课后反馈草稿。
+
+日常分发以 `Windows 单文件 EXE` 为主。
+最终使用者不需要自行安装 Python，也不需要在页面里维护配置。
+当前 Web 工作台中的 `系统配置` 模块已经隐藏；
+如需更换 `VISION_API_KEY` 或模型参数，请由维护者修改 `.env` 后重新打包。
+
+## 目录
+
+- [文档导航](#文档导航)
+- [项目现状](#项目现状)
+- [教材提词输出规则](#教材提词输出规则)
+- [快速开始](#快速开始)
+- [配置维护](#配置维护)
+- [Windows 打包与分发](#windows-打包与分发)
+- [源码运行](#源码运行)
+- [清理生成物](#清理生成物)
+- [HTTP 接口](#http-接口)
+- [开发与测试](#开发与测试)
+- [常见问题](#常见问题)
+- [项目结构](#项目结构)
 
 ## 文档导航
 
 - [用户操作手册](docs/用户操作手册.md)
-  面向老师、教务或运营同事，重点说明页面操作、输入要求、结果解读和常见异常。
+  面向老师、教务和运营同事，重点说明页面操作和结果解读。
 - `README.md`
-  面向部署、分发和开发人员，重点说明环境准备、启动方式、配置、打包与接口。
+  面向维护者和开发者，重点说明配置、打包、清理和接口。
 
-## 环境要求
-- 运行机器必须预先安装 **Python 3.12**
-- `pyproject.toml` 已限制为 `>=3.12,<3.13`
-- Windows 下推荐安装官方 Python 3.12，并勾选加入 `PATH`
-- 首次执行 `setup.ps1` 需要联网安装依赖
-- 首次处理词典或音频时，服务仍会联网下载运行时资源
+## 项目现状
+
+### 当前对外使用方式
+
+- 维护者在本仓库内维护 `.env`
+- 维护者执行 `package-windows.ps1`
+- 脚本生成单文件 `exe`
+- 使用者双击 `exe` 即可启动
+
+### 当前页面行为
+
+- 用户可见标签页只有 `教材提词` 和 `课后反馈`
+- `系统配置` 面板仍保留在代码中，但前端已隐藏
+- 后端的 `/v1/settings` 相关接口仍保留，供维护或调试使用
+
+### 当前运行时资源策略
+
+- 源码模式下，首次处理词典或音频时会准备运行时资源
+- 打包模式下，`package-windows.ps1` 会预载词典、Vosk 模型和相关 wheel
+- 单文件 `exe` 启动后，会把这些资源恢复到同目录下的 `.runtime/bootstrap/`
+
+## 教材提词输出规则
+
+### 词条补全
+
+教材提词会把教材标注词、手工补词和音频补词合并去重后写入 Excel。
+每个词条会尽量补全以下字段：
+
+| 字段 | 规则 |
+| --- | --- |
+| 音标 | 优先使用本地免费词典资源 |
+| 词性 | 使用本地词典解析，常见短语标为 `phr.` |
+| 中文意思 | 优先使用本地词典；常见教材短语有内置兜底释义 |
+| 例句 | 优先定位教材正文中的原句；找不到时自动生成语义贴合的例句 |
+| 页数 | 只有使用教材原句时填写页码；自动生成例句时保持为空 |
+
+### 例句高亮
+
+生成的 Excel 和页面预览都会在例句中突出目标词：
+
+- 目标词或词组会加粗
+- 字号会在原字号基础上放大一点，便于检查
+- 匹配时区分完整单词边界，避免把 `apple` 错标到 `pineapple` 中
+- 词组会按连续短语匹配，例如 `in the future`
+
+### 找不到教材例句时的造句策略
+
+当教材正文中无法定位到某个词条的例句时，系统不会再留空，
+而是生成一条更贴合词义和词性的英文例句。页数字段保持为空，
+方便人工区分“教材原句”和“系统生成例句”。
+
+示例：
+
+| 词条 | 生成例句 |
+| --- | --- |
+| `afraid` | `My brother was afraid of it, but it didn't come anywhere near us.` |
+| `upset` | `She was upset because she lost her favorite notebook.` |
+| `several` | `Several students stayed after class to ask questions.` |
+| `yet` | `I haven't finished my homework yet.` |
 
 ## 快速开始
 
-### Windows 用户
+### 给最终使用者
 
-1. 先确认本机已安装 Python 3.12
-2. 在项目根目录执行：
+把下面两个文件发给对方即可：
+
+- `dist/vocab-sheet-service.exe`
+- `dist/vocab-sheet-service.sha256.txt`
+
+使用者操作：
+
+1. 双击 `vocab-sheet-service.exe`
+2. 等浏览器自动打开 `http://127.0.0.1:8000/`
+3. 在页面中使用 `教材提词` 或 `课后反馈`
+
+说明：
+
+- 不需要安装 Python
+- 不需要手动配置密钥
+- 默认会自动打开浏览器
+- 如需自定义端口，可命令行执行：
 
 ```powershell
-.\setup.ps1
+.\vocab-sheet-service.exe --host 127.0.0.1 --port 18080 --no-browser
 ```
 
-3. 编辑 `.env`，填写：
+### 给维护者
 
-```env
-VISION_API_KEY=你的密钥
-```
-
-4. 启动服务：
-
-```powershell
-.\start.ps1 -NoReload
-```
-
-5. 浏览器打开 `http://127.0.0.1:8000/`
-6. 首次进入建议先打开 `系统配置` 页面，校验并保存 `VISION_API_KEY`
-
-### 开发者模式
-
-如果你需要运行测试或继续开发，推荐直接安装开发依赖：
+首次进入项目时先准备本地开发环境：
 
 ```powershell
 .\setup.ps1 -Dev
 ```
 
-这会在项目根目录创建或复用 `.venv/`，并安装 `.[dev]`。
+然后根据工作需要：
+
+- 本地源码运行：`.\start.ps1 -NoReload`
+- 打包单文件 EXE：`powershell -NoProfile -ExecutionPolicy Bypass -File .\package-windows.ps1`
+
+## 配置维护
+
+### 配置文件位置
+
+项目默认读取根目录 `.env`：
+
+```env
+REQUEST_TIMEOUT_SECONDS=90
+RUNTIME_ROOT=.runtime
+VISION_API_KEY=
+VISION_BASE_URL=https://api.siliconflow.cn/v1
+VISION_MODEL=Qwen/Qwen3-VL-32B-Instruct
+VISION_TIMEOUT_SECONDS=90
+```
+
+如果本地缺少 `.env`，可先复制模板：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+### 维护原则
+
+- 日常使用者不再通过页面修改配置
+- 如需更换 `VISION_API_KEY`、模型地址或超时参数，请直接修改 `.env`
+- 修改 `.env` 后，如要发给别人继续使用，请重新执行打包脚本生成新的 `exe`
+
+### 主要配置项
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `REQUEST_TIMEOUT_SECONDS` | `90` | 通用请求超时时间 |
+| `RUNTIME_ROOT` | `.runtime` | 运行时缓存目录 |
+| `VISION_API_KEY` | 空 | 必填，视觉模型接口密钥 |
+| `VISION_BASE_URL` | `https://api.siliconflow.cn/v1` | 视觉模型兼容接口地址 |
+| `VISION_MODEL` | `Qwen/Qwen3-VL-32B-Instruct` | 视觉模型 ID |
+| `VISION_TIMEOUT_SECONDS` | `90` | 视觉模型请求超时时间 |
+
+## Windows 打包与分发
+
+### 打包命令
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\package-windows.ps1
+```
+
+### 打包产物
+
+脚本会生成：
+
+```text
+dist/
+├─ vocab-sheet-service.exe
+└─ vocab-sheet-service.sha256.txt
+```
+
+### 当前打包行为
+
+- 自动校验本地 `.env` 是否存在
+- 自动安装或复用 `.venv` 中的 `PyInstaller`
+- 自动把当前 `.env` 打进 `exe`
+- 自动预载本地词典、Vosk 模型和相关 wheel
+- 生成 SHA256 校验文件，便于分发后验包
+
+### 使用建议
+
+- 给外部使用者分发前，先确认 `.env` 中的密钥和模型参数就是要交付的版本
+- 如担心文件损坏，可让对方校验 `SHA256`
+- 如配置变更，重新打包，不建议让一线用户手动维护 `.env`
+
+## 源码运行
+
+### Windows
+
+安装依赖：
+
+```powershell
+.\setup.ps1
+```
+
+开发环境安装：
+
+```powershell
+.\setup.ps1 -Dev
+```
+
+启动服务：
+
+```powershell
+.\start.ps1 -NoReload
+```
+
+后台启动并追日志：
+
+```powershell
+.\start.ps1 -Background -NoReload -TailLogs
+```
 
 ### macOS / Linux
 
-本仓库提供的 `setup.ps1` 主要面向 Windows。macOS / Linux 请手动执行：
+仓库自带的 PowerShell 脚本主要面向 Windows。
+如需手动运行，可参考：
 
 ```bash
 python3.12 -m venv .venv
@@ -71,316 +243,58 @@ source .venv/bin/activate
 pip install --upgrade pip setuptools wheel
 pip install -e .[dev]
 cp .env.example .env
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-然后填写：
+## 清理生成物
 
-```env
-VISION_API_KEY=你的密钥
-```
-
-启动服务：
-
-```bash
-.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
-
-然后打开：
-
-```text
-http://127.0.0.1:8000/
-```
-
-## Web 工作台说明
-
-启动后访问：
-
-```text
-http://127.0.0.1:8000/
-```
-
-当前页面包含 3 个标签页：
-
-| 页面 | 作用 |
-| --- | --- |
-| `教材提词` | 上传教材、可选上传音频、手工补词、跟踪生成进度并下载词表 |
-| `课后反馈` | 导入课堂音频或逐字稿，生成并编辑课后反馈草稿 |
-| `系统配置` | 维护密钥、模型地址、模型名称和超时参数 |
-
-首次使用建议顺序：
-
-1. 打开 `系统配置`
-2. 填写并测试 `VISION_API_KEY`
-3. 先试跑一份 `教材提词`
-4. 再开始使用 `课后反馈`
-
-如果你是日常使用者，建议优先看 [用户操作手册](docs/用户操作手册.md)。
-
-## 安装脚本说明
-
-### `setup.ps1`
-
-作用：
-
-- 检查本机是否可用 Python 3.12
-- 创建 `.venv/`
-- 安装项目依赖
-- 在缺少 `.env` 时自动从 `.env.example` 复制
-
-常用命令：
-
-```powershell
-.\setup.ps1
-.\setup.ps1 -Dev
-```
-
-说明：
-
-- `.\setup.ps1` 安装运行依赖
-- `.\setup.ps1 -Dev` 额外安装测试开发依赖
-- 如果已有的 `.venv` 不是 Python 3.12，或是旧版内置环境残留导致缺少 `pip`，脚本会自动重建
-
-## 启动服务
-
-### 前台启动
-
-```powershell
-.\start.ps1 -NoReload
-```
-
-说明：
-
-- 前台模式下，接口访问日志和应用处理日志会直接打印到当前控制台
-- 启动脚本会优先使用 `.venv\Scripts\python.exe`
-- 如果 `.venv` 不存在，会尝试使用本机安装的 Python 3.12
-- 如果当前 Python 3.12 环境里缺少依赖，启动前检查会提示先执行 `.\setup.ps1`
-
-### 后台启动并实时看日志
-
-```powershell
-.\start.ps1 -Background -NoReload -TailLogs
-```
-
-说明：
-
-- 服务在后台运行
-- 当前窗口会持续追踪 `.runtime/logs/uvicorn.stderr.log` 和 `.runtime/logs/uvicorn.stdout.log`
-- 按 `Ctrl+C` 只会停止“看日志”，不会停掉后台服务
-
-### 常见启动方式
-
-```powershell
-.\start.ps1
-.\start.ps1 -Port 8001
-.\start.ps1 -HostAddress 0.0.0.0 -Port 8000 -NoReload
-.\start.ps1 -Background
-.\start.ps1 -Background -NoReload -TailLogs
-```
-
-参数说明：
-
-- `-NoReload`：关闭热重载，适合稳定运行或分发后使用
-- `-Background`：后台启动
-- `-TailLogs`：后台启动后在当前窗口实时追踪日志
-
-## 配置说明
-
-复制配置模板：
-
-```powershell
-copy .env.example .env
-```
-
-支持的环境变量：
-
-| 变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `REQUEST_TIMEOUT_SECONDS` | `90` | 通用下载超时时间 |
-| `RUNTIME_ROOT` | `.runtime` | 运行时缓存目录 |
-| `VISION_API_KEY` | 空 | 必填，视觉模型接口密钥 |
-| `VISION_BASE_URL` | `https://api.siliconflow.cn/v1` | 硅基流动兼容接口地址 |
-| `VISION_MODEL` | `Qwen/Qwen3-VL-32B-Instruct` | 视觉模型 ID |
-| `VISION_TIMEOUT_SECONDS` | `90` | 视觉模型调用超时时间 |
-
-当前安全策略：
-
-- 代码里不再硬编码第三方 Key
-- 分享给别人时，推荐使用 `windows-share` 包，不带 `.env`
-- 内部直接用时，可使用 `windows-internal` 包，打包脚本会在本地存在 `.env` 时一起带上
-
-## 打包给别人使用
-
-执行：
-
-```powershell
-.\package-windows.ps1
-```
-
-脚本会生成：
-
-```text
-dist/
-├─ windows-share/
-└─ windows-internal/
-```
-
-### 新的分发约定
-
-- **两个包都不再携带 `.python312`**
-- **接收方必须本机安装 Python 3.12**
-- **接收方首次使用前必须先执行 `.\setup.ps1`**
-
-### `windows-share`
-
-适合发给外部或其他同事：
-
-- 不带 `.env`
-- 接收方需要自行填写 `VISION_API_KEY`
-- 接收方需要先安装 Python 3.12，再执行安装脚本
-
-接收方操作：
-
-1. 确认本机已安装 Python 3.12
-2. 执行 `.\setup.ps1`
-3. 把 `.env.example` 复制成 `.env`
-4. 填好 `VISION_API_KEY`
-5. 执行 `.\start.ps1 -NoReload`
-6. 打开 `http://127.0.0.1:8000/`
-
-### `windows-internal`
-
-适合内部直接使用：
-
-- 如果你本机有 `.env`，打包时会一起复制进去
-- 接收方仍然需要先安装 Python 3.12
-- 第一次运行前仍然要先执行 `.\setup.ps1`
-
-### 分发包里默认包含什么
-
-- `app/`
-- `template/`
-- `pyproject.toml`
-- `setup.ps1`
-- `start.ps1`
-- `clean-generated.ps1`
-- `README.md`
-- `.env.example`
-
-默认不包含：
-
-- `.python312/`
-- `.runtime/bootstrap/`
-- `tests/`
-- `.venv/`
-- 私有 `.env`（仅 `windows-internal` 在本地存在 `.env` 时才会带）
-
-## 首次运行会下载什么
-
-首次处理词典或音频时，服务会自动下载并缓存到 `RUNTIME_ROOT`：
-
-- `cmudict`
-- `cedict`
-- `Vosk` 英文小模型
-- 本地语音识别依赖 wheel
-
-默认缓存位置：
-
-```text
-.runtime/bootstrap/
-```
-
-这意味着：
-
-- 第一次执行 `setup.ps1` 需要联网安装 Python 依赖
-- 第一次业务请求可能更慢
-- 第一次运行仍需要能访问外网下载运行时资源
-- 下载完成后会复用本地缓存
-
-## 哪些目录和文件是干嘛的
-
-### 需要保留的核心内容
-
-| 路径 | 作用 | 是否建议保留 |
-| --- | --- | --- |
-| `app/` | 服务源码 | 是 |
-| `docs/` | 项目文档与用户手册 | 建议保留 |
-| `template/` | 固定 Excel 模板 | 是 |
-| `tests/` | 自动化测试 | 开发时保留 |
-| `pyproject.toml` | 依赖与 Python 版本约束 | 是 |
-| `setup.ps1` | Windows 安装脚本 | 是 |
-| `start.ps1` | 主启动脚本 | 是 |
-| `clean-generated.ps1` | 清理生成物脚本 | 建议保留 |
-| `package-windows.ps1` | 生成 Windows 分发包 | 打包时保留 |
-| `.env.example` | 配置模板 | 是 |
-| `README.md` | 使用说明 | 是 |
-
-### 常见生成物，可以删除
-
-| 路径 | 来源 | 是否可删 |
-| --- | --- | --- |
-| `pytest-cache-files-*` | `pytest` 创建缓存目录失败后遗留的临时目录 | 可以 |
-| `tmp*` | 临时目录 | 可以 |
-| `__pycache__/` | Python 字节码缓存 | 可以 |
-| `vocab_sheet_service.egg-info/` | `pip install -e .` 生成的包元数据 | 可以 |
-| `.pytest_cache/` | pytest 缓存 | 可以 |
-| `.runtime/logs/` | 运行日志 | 可以 |
-| `dist/` | 打包输出目录 | 可以 |
-
-可以直接执行：
+### 推荐清理命令
 
 ```powershell
 .\clean-generated.ps1
 ```
 
-如果连首次下载的词典/语音资源也想一起清掉：
+如果连运行时资源缓存也一起清掉：
 
 ```powershell
 .\clean-generated.ps1 -IncludeRuntimeBootstrap
 ```
 
-### 本地运行环境相关目录
+### 默认清理范围
 
-| 路径 | 作用 | 说明 |
-| --- | --- | --- |
-| `.venv/` | 本地虚拟环境 | 由 `setup.ps1` 或手工 `venv` 创建，可删后重建 |
-| `.runtime/bootstrap/` | 运行时自动下载的词典、Vosk 模型、wheel 缓存 | 可删，但下次会重新下载 |
+- `build/`
+- `dist/`
+- `.pytest_cache/`
+- `vocab_sheet_service.egg-info/`
+- `.runtime/` 下除 `bootstrap/` 外的临时目录、测试目录、日志和任务输出
+- `app/`、`tests/` 下的 `__pycache__/`
+- 根目录里的 `tmp*`、`pytest-cache-files-*`、`*.egg-info`
+
+### 说明
+
+- 默认保留 `.runtime/bootstrap/`，避免下次重新下载大体积资源
+- 打包产物位于 `dist/`，如果还要发给别人，请先备份后再执行清理
 
 ## HTTP 接口
 
-### `GET /health`
+### 基础接口
 
-健康检查：
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/health` | 健康检查 |
+| `GET` | `/` | Web 工作台页面 |
+| `GET` | `/v1/vocab/template` | 返回固定模板说明 |
 
-```json
-{
-  "status": "ok"
-}
-```
+### 教材提词
 
-### `GET /`
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/v1/vocab/fill` | 同步生成词表并直接返回 Excel |
+| `POST` | `/v1/vocab/jobs` | 创建异步教材提词任务 |
+| `GET` | `/v1/vocab/jobs/{job_id}` | 查询异步任务状态 |
+| `GET` | `/v1/vocab/jobs/{job_id}/download` | 下载异步任务生成的 Excel |
 
-返回本地调试用上传页面。
-
-### `GET /v1/vocab/template`
-
-返回固定模板说明，包括：
-
-- 模板文件名
-- 标题写入规则
-- 模板列定义
-- 前端结果区使用的字段说明
-
-### `POST /v1/vocab/fill`
-
-同步接口，使用 `multipart/form-data` 上传教材并直接返回词表文件。
-
-适合：
-
-- 脚本直调
-- 调试
-- 不需要前端任务进度时使用
-
-请求字段：
+`POST /v1/vocab/fill` 请求字段：
 
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
@@ -388,143 +302,39 @@ dist/
 | `audio_file` | 否 | 音频文件，辅助提词 |
 | `words_text` | 否 | 手工补充单词文本 |
 
-成功时直接返回 `.xlsx` 文件流，下载文件名规则：
+### 课后反馈
 
-```text
-{teaching_file.stem}.xlsx
-```
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/v1/feedback/jobs` | 创建课后反馈任务 |
+| `GET` | `/v1/feedback/jobs/{job_id}` | 查询反馈任务状态 |
+| `POST` | `/v1/feedback/jobs/{job_id}/sections/{section_key}/regenerate` | 重新生成某一个反馈模块 |
 
-响应头：
-
-- `X-Words-Written`
-- `X-Words-Skipped`
-- `X-Skipped-Reasons`
-
-`curl` 示例：
-
-```bash
-curl.exe -X POST "http://127.0.0.1:8000/v1/vocab/fill" ^
-  -F "teaching_file=@lesson.pdf" ^
-  -F "audio_file=@lesson.mp3" ^
-  -F "words_text=apple, improve, watch"
-```
-
-### `POST /v1/vocab/jobs`
-
-异步创建教材提词任务。Web 工作台默认使用这一组接口。
-
-请求字段与 `POST /v1/vocab/fill` 基本一致：
+`POST /v1/feedback/jobs` 请求字段：
 
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
-| `teaching_file` | 是 | 教材文件，支持 `.pdf` / `.docx` |
-| `audio_file` | 否 | 音频文件，辅助提词 |
-| `words_text` | 否 | 手工补充单词文本 |
-
-返回：
-
-- `job_id`
-- `status`
-- `progress_percent`
-- `stage_code`
-- `stage_label`
-
-### `GET /v1/vocab/jobs/{job_id}`
-
-查询教材提词任务状态。
-
-响应会包含：
-
-- 当前阶段和进度
-- `rows_written`
-- `written_rows`
-- `skipped_words`
-- `skipped_items`
-- `download_url`
-- `output_filename`
-
-### `GET /v1/vocab/jobs/{job_id}/download`
-
-下载异步教材提词任务生成的 Excel 文件。
-
-### `POST /v1/feedback/jobs`
-
-创建课后反馈生成任务。
-
-请求字段：
-
-| 字段 | 必填 | 说明 |
-| --- | --- | --- |
-| `lesson_date` | 是 | 上课日期，格式如 `2026-04-28` |
+| `lesson_date` | 是 | 上课日期，如 `2026-04-29` |
 | `lesson_index` | 是 | 节次，从 `1` 开始 |
 | `class_name` | 否 | 班级或课程名 |
-| `transcript_text` | 否 | 逐字稿、老师补充笔记 |
+| `transcript_text` | 否 | 逐字稿或补充笔记 |
 | `audio_file` | 否 | 课堂音频 |
 
 说明：
 
 - `audio_file` 和 `transcript_text` 至少提供一个
-- 如果两者同时提供，系统会合并后生成反馈草稿
+- 两者同时提供时，系统会合并内容后生成反馈草稿
 
-### `GET /v1/feedback/jobs/{job_id}`
+### 维护接口
 
-查询课后反馈任务状态。
+以下接口仍保留，但默认页面已隐藏对应入口：
 
-响应会包含：
-
-- 当前阶段和进度
-- `draft_sections`
-- `composed_text`
-- `transcript_text`
-- `error_message`
-
-### `POST /v1/feedback/jobs/{job_id}/sections/{section_key}/regenerate`
-
-重新生成某一个反馈模块。
-
-当前反馈草稿默认包含以下模块键：
-
-- `header`
-- `focus`
-- `patterns`
-- `homework`
-- `teacher_note`
-
-### `GET /v1/settings`
-
-读取当前系统配置。
-
-返回内容包括：
-
-- `REQUEST_TIMEOUT_SECONDS`
-- `RUNTIME_ROOT`
-- `VISION_BASE_URL`
-- `VISION_MODEL`
-- `VISION_TIMEOUT_SECONDS`
-- 脱敏后的密钥状态
-
-### `PUT /v1/settings`
-
-保存系统配置。
-
-说明：
-
-- 正在运行教材提词或课后反馈任务时，不允许保存
-- `VISION_API_KEY` 留空时，沿用当前密钥
-- 保存后仅新任务使用新配置
-
-### `POST /v1/settings/validate`
-
-校验当前表单配置是否能连通视觉服务，但不会保存到 `.env`。
-
-### `POST /v1/audio/transcribe`
-
-把音频转成文本，并返回候选单词列表。
-
-适合：
-
-- Web 页面中的 `点麦补词`
-- 单独调试音频识别效果
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/v1/settings` | 读取当前配置 |
+| `PUT` | `/v1/settings` | 保存配置 |
+| `POST` | `/v1/settings/validate` | 校验配置连通性 |
+| `POST` | `/v1/audio/transcribe` | 音频转文本并返回候选单词 |
 
 ## 开发与测试
 
@@ -534,79 +344,52 @@ curl.exe -X POST "http://127.0.0.1:8000/v1/vocab/fill" ^
 .\setup.ps1 -Dev
 ```
 
-然后运行：
+运行测试：
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-如果你已经手动激活了 Python 3.12 虚拟环境，也可以：
+当前测试覆盖重点包括：
 
-```powershell
-python -m pytest -q
-```
-
-当前测试覆盖：
-
-- 视觉接口 JSON 解析、超时和上游错误
-- 练习题句子还原
 - PDF / DOCX 解析
 - 固定模板写入
+- 词典与语音运行时资源准备
 - 路由错误映射
-- pipeline 在无词和全跳过场景下的行为
-- 运行时资源下载重试
+- 配置读写与校验
+- 课后反馈生成链路
 
 ## 常见问题
 
-### 1. 启动时报 `Python 3.12 interpreter not found`
+### 1. 双击 EXE 没反应或启动失败
 
-说明当前机器没有可用的 Python 3.12。请先安装 Python 3.12，再执行：
-
-```powershell
-.\setup.ps1
-```
-
-### 2. 启动时报缺少依赖或 `ModuleNotFoundError`
-
-说明当前 Python 3.12 环境还没有安装项目依赖。执行：
+先尝试在 PowerShell 中直接运行：
 
 ```powershell
-.\setup.ps1
+.\vocab-sheet-service.exe --host 127.0.0.1 --port 18080 --no-browser
 ```
 
-如果你是开发者：
+再观察控制台报错信息。
 
-```powershell
-.\setup.ps1 -Dev
-```
+### 2. 想改 Key，但页面里看不到“系统配置”
 
-### 3. 启动时报 `缺少 VISION_API_KEY`
+这是当前设计。
+请由维护者修改项目根目录 `.env`，然后重新打包 `exe`。
 
-处理方法：
+### 3. 第一次业务处理为什么还是稍慢
 
-1. 复制 `.env.example` 为 `.env`
-2. 填写 `VISION_API_KEY`
-3. 重新执行 `.\start.ps1 -NoReload`
+虽然打包时已预载资源，但单文件 `exe` 首次启动仍需要解包，
+并把内置资源恢复到同目录下的 `.runtime/`。
 
-### 4. 能启动，但第一次处理很慢
+### 4. 源码模式启动时报 `缺少 VISION_API_KEY`
 
-正常。首次会下载词典和语音模型资源。
+说明当前 `.env` 没有填好。
+请复制 `.env.example` 到 `.env` 并补齐密钥。
 
-### 5. 为什么控制台没日志
+### 5. 是否必须保留 `dist/`
 
-- 前台启动请用 `.\start.ps1 -NoReload`
-- 后台启动请用 `.\start.ps1 -Background -NoReload -TailLogs`
-- 也可以直接看 `.runtime/logs/uvicorn.stderr.log`
-
-### 6. `.venv` 不是 Python 3.12，或旧环境没有 `pip` 怎么办
-
-直接重新执行：
-
-```powershell
-.\setup.ps1
-```
-
-脚本会自动用本机 Python 3.12 重建 `.venv/`。
+不是。
+`dist/` 只是打包输出目录，随时可以删除并通过打包脚本重新生成。
 
 ## 项目结构
 
@@ -616,7 +399,9 @@ vocab-sheet-service/
 │  ├─ api/
 │  ├─ models/
 │  ├─ services/
-│  └─ utils/
+│  ├─ utils/
+│  ├─ web/
+│  └─ portable_entry.py
 ├─ docs/
 │  └─ 用户操作手册.md
 ├─ template/
@@ -628,5 +413,6 @@ vocab-sheet-service/
 ├─ package-windows.ps1
 ├─ pyproject.toml
 ├─ setup.ps1
-└─ start.ps1
+├─ start.ps1
+└─ vocab-sheet-service.spec
 ```

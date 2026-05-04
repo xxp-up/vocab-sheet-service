@@ -124,13 +124,9 @@ class PipelineService:
             if sentence is not None:
                 example = sentence.text
                 example_page = sentence.page_number
-            elif normalized_word in manual_keys:
-                example = _build_generated_example(word)
-                example_page = None
             else:
-                example = ""
+                example = _build_generated_example(word, meaning)
                 example_page = None
-                issues.append("未在教材正文中定位到例句")
 
             if meaning is None and not is_multiword_term(word):
                 issues.append("本地免费词典未找到该单词释义")
@@ -180,8 +176,51 @@ def _resolve_sources(parsed_document_words, normalized_word: str, manual_keys: s
     return source_names
 
 
-def _build_generated_example(word: str) -> str:
-    return f"The term {word} is used in this lesson."
+GENERATED_EXAMPLES = {
+    "afraid": "My brother was afraid of it, but it didn't come anywhere near us.",
+    "upset": "She was upset because she lost her favorite notebook.",
+    "special": "We prepared a special meal for our guest.",
+    "several": "Several students stayed after class to ask questions.",
+    "yet": "I haven't finished my homework yet.",
+    "apple": "I put an apple in my lunch box.",
+    "banana": "She ate a banana before the race.",
+    "at least": "You should drink at least six glasses of water each day.",
+    "as well as": "She can speak French as well as English.",
+    "well-known": "The museum has a well-known painting near the entrance.",
+    "in the future": "I hope to visit that city again in the future.",
+    "was allowed to": "He was allowed to choose a book from the library.",
+    "be allowed to": "Students will be allowed to use dictionaries during the test.",
+    "allowed to": "We are allowed to play outside after lunch.",
+    "answer the questions": "Please read the passage and answer the questions.",
+    "at the end": "We took a group photo at the end of the trip.",
+}
+
+
+def _build_generated_example(word: str, meaning: VocabMeaning | None = None) -> str:
+    term = word.strip()
+    normalized = normalize_word(term)
+    if not term:
+        return ""
+
+    fixed_example = GENERATED_EXAMPLES.get(normalized)
+    if fixed_example:
+        return fixed_example
+
+    article = "an" if term[:1].lower() in {"a", "e", "i", "o", "u"} else "a"
+    pos_abbr = (meaning.pos_abbr if meaning is not None else "").lower()
+    if pos_abbr == "adv.":
+        return f"She explained the answer {term}."
+    if pos_abbr == "adj.":
+        return f"It was {article} {term} day for everyone."
+    if pos_abbr == "n.":
+        return f"The {term} helped us understand the story."
+    if pos_abbr == "v.":
+        return f"They need to {term} before the lesson ends."
+    if pos_abbr == "prep.":
+        return f"The book is {term} the desk."
+    if is_multiword_term(term):
+        return f"We talked about {term} during the lesson."
+    return f"I learned the word {term} in class today."
 
 
 async def _emit_progress(progress_callback: ProgressCallback | None, stage_code: str, progress_percent: int, stage_label: str) -> None:

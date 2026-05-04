@@ -11,10 +11,41 @@ from app.services.runtime_resources import ResourceBootstrapError, ensure_lexico
 from app.utils.text import normalize_word
 
 
-POS_PATTERN = re.compile(
-    r"^(n\.|adj\.|adv\.|vt\.|vi\.|v\.|prep\.|pron\.|conj\.|num\.|art\.|int\.|aux\.|abbr\.|phr\.|vbl\.)",
+POS_TOKENS = (
+    "prep.",
+    "pron.",
+    "conj.",
+    "abbr.",
+    "vbl.",
+    "aux.",
+    "adj.",
+    "adv.",
+    "int.",
+    "num.",
+    "art.",
+    "phr.",
+    "vt.",
+    "vi.",
+    "ad.",
+    "n.",
+    "v.",
+)
+POS_PATTERN = re.compile(rf"^({'|'.join(re.escape(token) for token in POS_TOKENS)})", re.IGNORECASE)
+INLINE_POS_PATTERN = re.compile(
+    rf"(?<!^)(?<![A-Za-z])(?=({'|'.join(re.escape(token) for token in POS_TOKENS)}))",
     re.IGNORECASE,
 )
+COMMON_PHRASE_MEANINGS = {
+    "at least": ("phr.", "至少"),
+    "as well as": ("phr.", "也；和……一样；以及"),
+    "well-known": ("adj.", "著名的"),
+    "in the future": ("phr.", "将来；未来"),
+    "was allowed to": ("phr.", "被允许做"),
+    "be allowed to": ("phr.", "被允许做"),
+    "allowed to": ("phr.", "被允许做"),
+    "answer the questions": ("phr.", "回答问题"),
+    "at the end": ("phr.", "最后；在末尾"),
+}
 ARPABET_TO_IPA = {
     "AA": "ɑ",
     "AE": "æ",
@@ -121,10 +152,18 @@ def _build_meaning(
     pronunciations: dict[str, str],
     translations: dict[str, str],
 ) -> VocabMeaning | None:
+    common_phrase = _build_common_phrase_meaning(original, normalized)
+    if common_phrase is not None:
+        return common_phrase
+
+    preferred_pos = _preferred_pos_for_word(normalized)
     for candidate in _lemma_candidates(normalized):
         translation = translations.get(candidate)
         if translation:
-            pos_abbr, zh_meaning = _parse_translation(translation)
+            pos_abbr, zh_meaning = _parse_translation(
+                translation,
+                preferred_pos=preferred_pos if candidate != normalized else None,
+            )
             ipa = _arpabet_to_ipa(pronunciations.get(normalized) or pronunciations.get(candidate) or "")
             return VocabMeaning(
                 word=original.strip(),
@@ -132,6 +171,29 @@ def _build_meaning(
                 pos_abbr=pos_abbr,
                 zh_meaning=zh_meaning,
             )
+    return None
+
+
+def _build_common_phrase_meaning(original: str, normalized: str) -> VocabMeaning | None:
+    phrase = COMMON_PHRASE_MEANINGS.get(normalized)
+    if phrase is not None:
+        pos_abbr, zh_meaning = phrase
+        return VocabMeaning(word=original.strip(), ipa="", pos_abbr=pos_abbr, zh_meaning=zh_meaning)
+
+    century_match = re.match(r"^\s*(\d+)(?:st|nd|rd|th)-century\s*$", original, flags=re.IGNORECASE)
+    if century_match:
+        return VocabMeaning(
+            word=original.strip(),
+            ipa="",
+            pos_abbr="adj.",
+            zh_meaning=f"{century_match.group(1)}世纪的",
+        )
+    return None
+
+
+def _preferred_pos_for_word(word: str) -> str | None:
+    if word.endswith(("ing", "ed")) and len(word) > 4:
+        return "v."
     return None
 
 
@@ -210,22 +272,25 @@ def _lemma_candidates(word: str) -> list[str]:
     return candidates
 
 
-def _parse_translation(translation: str) -> tuple[str, str]:
+def _parse_translation(translation: str, *, preferred_pos: str | None = None) -> tuple[str, str]:
     cleaned = translation.replace("\n", ";").strip()
-    cleaned = re.sub(
-        r"(?<!^)(?=(n\.|adj\.|adv\.|vt\.|vi\.|v\.|prep\.|pron\.|conj\.|num\.|art\.|int\.|aux\.|abbr\.|phr\.|vbl\.))",
-        ";",
-        cleaned,
-        flags=re.IGNORECASE,
-    )
+    cleaned = INLINE_POS_PATTERN.sub(";", cleaned)
     segments = [segment.strip() for segment in re.split(r"[;,，；/]", cleaned) if segment.strip()]
     fallback = cleaned.strip()
+
+    parsed: list[tuple[str, str]] = []
 
     for segment in segments:
         pos_abbr = _extract_pos(segment)
         meaning = _clean_meaning(segment)
         if meaning:
-            return pos_abbr, meaning
+            parsed.append((pos_abbr, meaning))
+    if preferred_pos:
+        for pos_abbr, meaning in parsed:
+            if pos_abbr == preferred_pos:
+                return pos_abbr, meaning
+    if parsed:
+        return parsed[0]
     return "", _clean_meaning(fallback)
 
 
@@ -236,6 +301,8 @@ def _extract_pos(segment: str) -> str:
     value = match.group(1).lower()
     if value in {"vt.", "vi.", "vbl."}:
         return "v."
+    if value == "ad.":
+        return "adv."
     return value
 
 

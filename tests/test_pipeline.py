@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from app.models.domain import DocumentParseResult, ExtractedWord, SentenceOccurrence, VocabMeaning
-from app.services.pipeline import PipelineContentError, PipelineService
+from app.services.pipeline import PipelineContentError, PipelineService, _build_generated_example
 
 
 class _DocumentService:
@@ -81,7 +81,13 @@ def test_process_raises_when_no_candidate_words() -> None:
     assert "identified_words" not in excinfo.value.detail
 
 
-def test_process_writes_row_and_records_exception_when_sentence_is_missing() -> None:
+def test_build_generated_example_uses_semantic_examples() -> None:
+    assert _build_generated_example("afraid") == "My brother was afraid of it, but it didn't come anywhere near us."
+    assert _build_generated_example("upset") == "She was upset because she lost her favorite notebook."
+    assert _build_generated_example("several") == "Several students stayed after class to ask questions."
+
+
+def test_process_generates_example_when_sentence_is_missing() -> None:
     workbook = _CaptureWorkbookService()
     pipeline = PipelineService(
         lexicon_service=_LexiconService(
@@ -104,12 +110,10 @@ def test_process_writes_row_and_records_exception_when_sentence_is_missing() -> 
 
     assert result.rows_written == 1
     assert result.written_rows[0].word == "apple"
-    assert result.written_rows[0].example == ""
+    assert result.written_rows[0].example == "I put an apple in my lunch box."
     assert result.written_rows[0].example_page is None
-    assert result.skipped_words == {"apple": "未在教材正文中定位到例句"}
-    assert result.skipped_items[0].word == "apple"
-    assert result.skipped_items[0].reason == "未在教材正文中定位到例句"
-    assert result.skipped_items[0].sources == ["pdf:qwen_vl"]
+    assert result.skipped_words == {}
+    assert result.skipped_items == []
 
 
 def test_process_keeps_phrase_row_when_lexicon_has_no_phrase_meaning() -> None:
@@ -178,7 +182,7 @@ def test_process_uses_cleaned_sentence_from_restore_service() -> None:
     assert workbook.rows[0].example == "You should ride your bike on the left to make space for"
 
 
-def test_process_writes_row_when_only_option_block_contains_it_and_marks_exception() -> None:
+def test_process_generates_example_when_only_option_block_contains_it() -> None:
     workbook = _CaptureWorkbookService()
     pipeline = PipelineService(
         lexicon_service=_LexiconService(
@@ -208,8 +212,9 @@ def test_process_writes_row_when_only_option_block_contains_it_and_marks_excepti
 
     assert result.rows_written == 1
     assert result.written_rows[0].word == "yet"
-    assert result.written_rows[0].example == ""
-    assert result.skipped_words == {"yet": "未在教材正文中定位到例句"}
+    assert result.written_rows[0].example == "I haven't finished my homework yet."
+    assert result.written_rows[0].example_page is None
+    assert result.skipped_words == {}
 
 
 def test_process_writes_manual_word_when_sentence_exists() -> None:
@@ -277,7 +282,7 @@ def test_process_writes_manual_word_without_sentence_when_missing_in_textbook() 
     assert result.rows_written == 2
     manual_row = result.written_rows[1]
     assert manual_row.word == "banana"
-    assert manual_row.example == "The term banana is used in this lesson."
+    assert manual_row.example == "She ate a banana before the race."
     assert manual_row.example_page is None
     assert manual_row.sources == ["manual"]
     assert result.skipped_words == {}
