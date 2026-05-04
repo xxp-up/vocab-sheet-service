@@ -8,12 +8,13 @@ from openpyxl.cell.rich_text import CellRichText, TextBlock
 from openpyxl.cell.text import InlineFont
 
 from app.models.domain import VocabRow
+from app.utils.paths import resource_path
 from app.utils.text import find_term_spans
 
 
 EXPECTED_HEADERS = ["序号", "单词", "音标", "词性", "中文意思", "例句", "例句在教材中出现的页数", "来源"]
 DEFAULT_TEMPLATE_NAME = "单词表模板.xlsx"
-DEFAULT_TEMPLATE_PATH = Path(__file__).resolve().parents[2] / "template" / DEFAULT_TEMPLATE_NAME
+DEFAULT_TEMPLATE_PATH = resource_path("template", DEFAULT_TEMPLATE_NAME)
 TEMPLATE_TITLE_RULE = "使用上传教材文件名（不含扩展名）作为第一行标题"
 TEMPLATE_COLUMNS = [
     {"key": "index", "label": "序号"},
@@ -32,7 +33,7 @@ TEMPLATE_RESULT_FIELDS = [
     {"key": "written_rows", "label": "写入明细", "description": "每个已写入词条的列值与来源"},
     {"key": "skipped_items", "label": "跳过明细", "description": "每个跳过词条的原因与来源"},
 ]
-HIGHLIGHT_FONT = InlineFont(color="FFFF0000")
+HIGHLIGHT_FONT_SIZE_INCREMENT = 2
 
 
 class WorkbookTemplateError(RuntimeError):
@@ -63,13 +64,18 @@ class WorkbookService:
                 sheet.cell(row=index, column=3, value=row.ipa)
                 sheet.cell(row=index, column=4, value=row.pos_abbr)
                 sheet.cell(row=index, column=5, value=row.zh_meaning)
-                sheet.cell(row=index, column=6, value=_build_example_value(row.example, row.word) if row.example else "")
+                example_cell = sheet.cell(row=index, column=6)
+                example_cell.value = (
+                    _build_example_value(row.example, row.word, base_font_size=example_cell.font.sz)
+                    if row.example
+                    else ""
+                )
                 sheet.cell(row=index, column=7, value=row.example_page)
                 sheet.cell(row=index, column=8, value=_format_source_value(row.sources))
 
-                alignment = copy(sheet.cell(row=index, column=6).alignment)
+                alignment = copy(example_cell.alignment)
                 alignment.wrap_text = True
-                sheet.cell(row=index, column=6).alignment = alignment
+                example_cell.alignment = alignment
 
             workbook.save(output_path)
         finally:
@@ -93,7 +99,7 @@ class WorkbookService:
                 sheet.cell(row=row_index, column=column_index, value=None)
 
 
-def _build_example_value(example: str, term: str) -> str | CellRichText:
+def _build_example_value(example: str, term: str, *, base_font_size: float | None = None) -> str | CellRichText:
     spans = find_term_spans(example, term)
     if not spans:
         return example
@@ -103,11 +109,16 @@ def _build_example_value(example: str, term: str) -> str | CellRichText:
     for start, end in spans:
         if start > cursor:
             parts.append(example[cursor:start])
-        parts.append(TextBlock(HIGHLIGHT_FONT, example[start:end]))
+        parts.append(TextBlock(_build_highlight_font(base_font_size), example[start:end]))
         cursor = end
     if cursor < len(example):
         parts.append(example[cursor:])
     return CellRichText(*parts)
+
+
+def _build_highlight_font(base_font_size: float | None) -> InlineFont:
+    font_size = (base_font_size or 11) + HIGHLIGHT_FONT_SIZE_INCREMENT
+    return InlineFont(b=True, color="FFFF0000", sz=font_size)
 
 
 def _format_source_value(sources: list[str]) -> str:

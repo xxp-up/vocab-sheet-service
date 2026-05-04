@@ -95,6 +95,7 @@ const state = {
 };
 
 document.addEventListener("DOMContentLoaded", () => {
+  pruneSettingsWorkspace();
   bindTabs();
   bindFileInputs();
   bindResultInspector();
@@ -104,10 +105,14 @@ document.addEventListener("DOMContentLoaded", () => {
   bindManualMic();
   activateTab(resolveInitialTab());
   hydrateDefaults();
-  void loadSettings();
   syncManualWordsChips();
   restoreCurrentTask();
 });
+
+function pruneSettingsWorkspace() {
+  document.querySelector('[data-tab-target="settings-panel"]')?.remove();
+  document.getElementById("settings-panel")?.remove();
+}
 
 function bindTabs() {
   document.querySelectorAll("[data-tab-target]").forEach((button) => {
@@ -799,7 +804,7 @@ function renderWrittenRowsTable(rows) {
           <td>${escapeHTML(row.ipa || "")}</td>
           <td>${escapeHTML(row.pos_abbr || "")}</td>
           <td>${escapeHTML(row.zh_meaning || "")}</td>
-          <td>${escapeHTML(row.example || "")}</td>
+          <td>${renderHighlightedExample(row.example || "", row.word || "")}</td>
           <td>${row.example_page == null ? "" : escapeHTML(String(row.example_page))}</td>
           <td>${renderSourceBadges(row.sources || [])}</td>
         </tr>`,
@@ -996,6 +1001,52 @@ function normalizeSourceLabel(source) {
     return "音频补词";
   }
   return "教材";
+}
+
+function renderHighlightedExample(example, term) {
+  const text = String(example ?? "");
+  const pattern = buildTermPattern(term);
+  if (!pattern) {
+    return escapeHTML(text);
+  }
+
+  let cursor = 0;
+  let result = "";
+  for (const match of text.matchAll(pattern)) {
+    const prefix = match[1] || "";
+    const matchedTerm = match[2] || "";
+    const start = match.index + prefix.length;
+    const end = start + matchedTerm.length;
+    result += escapeHTML(text.slice(cursor, start));
+    result += `<strong class="example-term-highlight">${escapeHTML(text.slice(start, end))}</strong>`;
+    cursor = end;
+  }
+  result += escapeHTML(text.slice(cursor));
+  return result;
+}
+
+function buildTermPattern(term) {
+  const normalized = normalizeTerm(term);
+  if (!normalized) {
+    return null;
+  }
+  const parts = normalized.split(/\s+/).map(escapeRegExp).filter(Boolean);
+  if (!parts.length) {
+    return null;
+  }
+  return new RegExp(`(^|[^A-Za-z])(${parts.join("\\s+")})(?![A-Za-z])`, "gi");
+}
+
+function normalizeTerm(term) {
+  return String(term ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/(^[^A-Za-z]+|[^A-Za-z]+$)/g, "")
+    .toLowerCase();
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function getWrittenRows(job) {
