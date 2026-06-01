@@ -14,6 +14,69 @@ def _make_settings() -> Settings:
     return Settings(vision_api_key="test-key")
 
 
+def test_restore_document_completes_part3_detail_question_with_correct_option() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content.decode("utf-8"))
+        user_prompt = payload["messages"][1]["content"]
+        assert "Part 1 questions 1-6 and Part 3 questions 14-18" in user_prompt
+        assert "Skip Part 2 questions 7-13" in user_prompt
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "questions": [
+                                        {
+                                            "part": 3,
+                                            "number": 16,
+                                            "sentence_with_blank": "Carla says that when she's on a horse,",
+                                            "restored_sentence": "Carla says that when she's on a horse, she can travel a long way",
+                                            "answer": "A",
+                                        }
+                                    ]
+                                }
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    service = ExerciseRestoreService(_make_settings(), transport=httpx.MockTransport(handler))
+    document = DocumentParseResult(
+        source_type="pdf",
+        full_text=(
+            "Part 3 Carla likes riding horses in the countryside. "
+            "16 Carla says that when she's on a horse, A she can travel a long way "
+            "B she has a good view of nature. C she gets less tired than when she walks"
+        ),
+        pages=[
+            DocumentPage(
+                text=(
+                    "Part 3 Carla likes riding horses in the countryside. "
+                    "16 Carla says that when she's on a horse, A she can travel a long way "
+                    "B she has a good view of nature. C she gets less tired than when she walks"
+                ),
+                page_number=3,
+            )
+        ],
+        sentences=[
+            SentenceOccurrence(text="16 Carla says that when she's on a horse,", order=0, page_number=3),
+            SentenceOccurrence(text="A she can travel a long way", order=1, page_number=3),
+            SentenceOccurrence(text="B she has a good view of nature.", order=2, page_number=3),
+            SentenceOccurrence(text="C she gets less tired than when she walks", order=3, page_number=3),
+        ],
+    )
+
+    result = asyncio.run(service.restore_document(document))
+
+    assert [item.text for item in result.sentences] == ["Carla says that when she's on a horse, she can travel a long way"]
+    assert result.sentences[0].page_number == 3
+
+
 def test_restore_document_replaces_part4_blank_sentence() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v1/chat/completions"

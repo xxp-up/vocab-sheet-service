@@ -12,20 +12,34 @@ from app.models.settings import Settings
 from app.utils.text import clean_sentence_occurrences, collapse_whitespace
 
 
+PART1_RANGE = range(1, 7)
+PART3_RANGE = range(14, 19)
 PART4_RANGE = range(19, 25)
 PART5_RANGE = range(25, 31)
+READING_DETAIL_PARTS = {1, 3}
+RESTORABLE_PART_RANGES = {
+    1: PART1_RANGE,
+    3: PART3_RANGE,
+    4: PART4_RANGE,
+    5: PART5_RANGE,
+}
 MATCH_WORD_PATTERN = re.compile(r"[a-z]+(?:'[a-z]+)?")
 MIN_SENTENCE_MATCH_SCORE = 0.85
+OPTION_CONTINUATION_PATTERN = re.compile(r"^[A-C]\s+\S+.*$", re.IGNORECASE)
 
 SYSTEM_PROMPT = (
     "You solve Cambridge-style English textbook exercises. "
-    "Return JSON only. Focus only on Part 4 questions 19-24 and Part 5 questions 25-30. "
+    "Return JSON only. Focus only on Part 1 questions 1-6, Part 3 questions 14-18, "
+    "Part 4 questions 19-24, and Part 5 questions 25-30. "
     'Return an object with exactly one key: "questions". '
     '"questions" must be an array of objects with exactly these keys: '
     '"part" (integer), "number" (integer), "sentence_with_blank" (string), '
     '"restored_sentence" (string), and "answer" (string). '
-    '"sentence_with_blank" must closely match the original sentence containing the blank marker. '
+    '"sentence_with_blank" must closely match the original incomplete question stem or sentence. '
     '"restored_sentence" must be the fully completed sentence with the correct answer filled in. '
+    "For Part 1 and Part 3 detail-comprehension questions, understand the full reading text first, "
+    "choose the correct A/B/C option, then combine the question stem with only the correct option text "
+    "as one natural complete sentence without the option letter. "
     'For Part 4, "answer" should be the completed word or phrase chosen from the options. '
     'For Part 5, "answer" should be the word filled into the blank. '
     "Skip any question you cannot solve confidently."
@@ -34,8 +48,11 @@ SYSTEM_PROMPT = (
 USER_PROMPT_TEMPLATE = (
     "Analyze the extracted textbook text below.\n"
     "Restore only these exercises:\n"
+    "- Part 1 questions 1-6 and Part 3 questions 14-18: read the whole passage or short text, "
+    "choose the correct A/B/C detail-comprehension answer, and complete the question stem into one sentence.\n"
     "- Part 4 questions 19-24: use the answer options to complete each sentence.\n"
     "- Part 5 questions 25-30: understand the whole text and fill each blank with the correct word.\n"
+    "Skip Part 2 questions 7-13.\n"
     "Return JSON only.\n\n"
     "{context}"
 )
@@ -136,7 +153,14 @@ def _page_mentions_target_exercises(text: str) -> bool:
         return True
     if re.search(r"\bpart\s*5\b", collapsed, re.IGNORECASE):
         return True
-    return any(re.search(rf"\({number}\)", collapsed) for number in list(PART4_RANGE) + list(PART5_RANGE))
+    if re.search(r"\bpart\s*1\b", collapsed, re.IGNORECASE):
+        return True
+    if re.search(r"\bpart\s*3\b", collapsed, re.IGNORECASE):
+        return True
+
+    if any(re.search(rf"\({number}\)", collapsed) for number in list(PART4_RANGE) + list(PART5_RANGE)):
+        return True
+    return any(re.search(rf"\b{number}\s+[A-Z]", collapsed) for number in list(PART1_RANGE) + list(PART3_RANGE))
 
 
 def _apply_restorations(
@@ -150,6 +174,8 @@ def _apply_restorations(
             continue
         merged_text = _merge_restored_sentence(restored[index].text, question)
         restored[index] = replace(restored[index], text=merged_text)
+        if question.part in READING_DETAIL_PARTS:
+            restored = _remove_following_option_continuations(restored, index)
     return restored
 
 
@@ -157,7 +183,11 @@ def _find_sentence_index(
     sentences: list[SentenceOccurrence],
     question: RestoredExerciseQuestion,
 ) -> int | None:
-    marker_pattern = re.compile(rf"\({question.number}\)")
+    marker_pattern = (
+        re.compile(rf"\({question.number}\)")
+        if question.part not in READING_DETAIL_PARTS
+        else re.compile(rf"^\s*(?:(?:[A-C]\s*){{1,3}})?{question.number}[.)]?\s+")
+    )
     for index, sentence in enumerate(sentences):
         if marker_pattern.search(sentence.text):
             return index
@@ -192,6 +222,9 @@ def _normalized_sentence(text: str) -> str:
 
 
 def _merge_restored_sentence(current_text: str, question: RestoredExerciseQuestion) -> str:
+    if question.part in READING_DETAIL_PARTS:
+        return collapse_whitespace(question.restored_sentence)
+
     updated = current_text
     if question.answer:
         updated = _replace_blank_with_answer(updated, question.number, question.answer)
@@ -206,6 +239,21 @@ def _merge_restored_sentence(current_text: str, question: RestoredExerciseQuesti
             return restored_normalized
 
     return normalized_updated
+
+
+def _remove_following_option_continuations(
+    sentences: list[SentenceOccurrence],
+    question_index: int,
+) -> list[SentenceOccurrence]:
+    cleaned: list[SentenceOccurrence] = []
+    for index, sentence in enumerate(sentences):
+        if (
+            question_index < index <= question_index + 3
+            and OPTION_CONTINUATION_PATTERN.match(collapse_whitespace(sentence.text))
+        ):
+            continue
+        cleaned.append(sentence)
+    return cleaned
 
 
 def _replace_blank_with_answer(text: str, number: int, answer: str) -> str:
@@ -311,7 +359,7 @@ def _parse_questions(content: str) -> list[RestoredExerciseQuestion]:
         restored_sentence = item.get("restored_sentence")
         answer = item.get("answer", "")
 
-        if not isinstance(part, int) or part not in {4, 5}:
+        if not isinstance(part, int) or part not in RESTORABLE_PART_RANGES:
             continue
         if not isinstance(number, int) or not _number_belongs_to_part(part, number):
             continue
@@ -335,11 +383,8 @@ def _parse_questions(content: str) -> list[RestoredExerciseQuestion]:
 
 
 def _number_belongs_to_part(part: int, number: int) -> bool:
-    if part == 4:
-        return number in PART4_RANGE
-    if part == 5:
-        return number in PART5_RANGE
-    return False
+    part_range = RESTORABLE_PART_RANGES.get(part)
+    return number in part_range if part_range is not None else False
 
 
 def _extract_json_object(content: str) -> str:

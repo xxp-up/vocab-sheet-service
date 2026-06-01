@@ -182,6 +182,44 @@ def test_process_uses_cleaned_sentence_from_restore_service() -> None:
     assert workbook.rows[0].example == "You should ride your bike on the left to make space for"
 
 
+def test_process_uses_completed_reading_detail_question_from_restore_service() -> None:
+    workbook = _CaptureWorkbookService()
+    restored_document = DocumentParseResult(
+        source_type="pdf",
+        full_text="source text",
+        words=[ExtractedWord(word="says", source="pdf:qwen_vl", page_hint=3)],
+        sentences=[
+            SentenceOccurrence(
+                text="Carla says that when she's on a horse, she can travel a long way",
+                order=0,
+                page_number=3,
+            )
+        ],
+    )
+    pipeline = PipelineService(
+        lexicon_service=_LexiconService(
+            meanings={"says": VocabMeaning(word="says", ipa="/sez/", pos_abbr="v.", zh_meaning="说")}
+        ),
+        document_service=_DocumentService(
+            DocumentParseResult(
+                source_type="pdf",
+                full_text="source text",
+                words=[ExtractedWord(word="says", source="pdf:qwen_vl", page_hint=3)],
+                sentences=[SentenceOccurrence(text="Carla says that when she's on a horse,", order=0, page_number=3)],
+            )
+        ),
+        audio_service=_AudioService(),
+        exercise_restore_service=_ExerciseRestoreService(restored_document),
+        workbook_service=workbook,
+    )
+
+    result = asyncio.run(pipeline.process(teaching_path=Path("lesson.pdf"), output_path=Path("result.xlsx")))
+
+    assert result.rows_written == 1
+    assert workbook.rows[0].example == "Carla says that when she's on a horse, she can travel a long way"
+    assert workbook.rows[0].example_page == 3
+
+
 def test_process_generates_example_when_only_option_block_contains_it() -> None:
     workbook = _CaptureWorkbookService()
     pipeline = PipelineService(
