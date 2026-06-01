@@ -57,6 +57,12 @@ def test_fill_template_writes_expected_columns_and_highlights_example_term() -> 
             if hasattr(block, "text") and getattr(getattr(block, "font", None), "b", None)
         ]
         assert highlighted_font_sizes == [expected_highlight_size, expected_highlight_size]
+        highlighted_font_colors = [
+            block.font.color.rgb
+            for block in sheet["F3"].value
+            if hasattr(block, "text") and getattr(getattr(block, "font", None), "b", None)
+        ]
+        assert highlighted_font_colors == ["FF000000", "FF000000"]
         assert sheet["G3"].value == 12
         assert sheet["H3"].value == "教材 / 手工补词"
     finally:

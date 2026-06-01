@@ -118,7 +118,7 @@ def _build_example_value(example: str, term: str, *, base_font_size: float | Non
 
 def _build_highlight_font(base_font_size: float | None) -> InlineFont:
     font_size = (base_font_size or 11) + HIGHLIGHT_FONT_SIZE_INCREMENT
-    return InlineFont(b=True, color="FFFF0000", sz=font_size)
+    return InlineFont(b=True, color="FF000000", sz=font_size)
 
 
 def _format_source_value(sources: list[str]) -> str:

@@ -1184,7 +1184,7 @@ input:focus {
 .example-term-highlight {
   font-weight: 800;
   font-size: calc(1em + 2px);
-  color: #b42318;
+  color: #000;
 }
 
 .source-badges {
